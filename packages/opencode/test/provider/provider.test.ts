@@ -606,6 +606,39 @@ it.instance(
 )
 
 it.instance(
+  "provider id alias inherits catalog under a different key with distinct credentials",
+  Effect.gen(function* () {
+    yield* set("ANTHROPIC_API_KEY", "account-a-key")
+    const providers = yield* list
+
+    const anthropic = providers[ProviderV2.ID.anthropic]
+    const aliased = providers[ProviderV2.ID.make("claude-b")]
+    expect(anthropic).toBeDefined()
+    expect(aliased).toBeDefined()
+
+    // alias inherits the full models.dev catalog
+    expect(aliased.models["claude-sonnet-4-20250514"]).toBeDefined()
+    expect(Object.keys(aliased.models).length).toBe(Object.keys(anthropic.models).length)
+
+    // models are re-stamped to the alias key so credential resolution is correct
+    expect(String(aliased.models["claude-sonnet-4-20250514"].providerID)).toBe("claude-b")
+    // the real anthropic catalog is untouched (no cross-contamination)
+    expect(String(anthropic.models["claude-sonnet-4-20250514"].providerID)).toBe("anthropic")
+    expect(aliased.models["claude-sonnet-4-20250514"]).not.toBe(anthropic.models["claude-sonnet-4-20250514"])
+
+    // distinct credentials per account
+    expect(aliased.options.apiKey).toBe("account-b-key")
+  }),
+  {
+    config: {
+      provider: {
+        "claude-b": { name: "Claude Account B", id: "anthropic", options: { apiKey: "account-b-key" } },
+      },
+    },
+  },
+)
+
+it.instance(
   "disabled_providers prevents loading even with env var",
   Effect.gen(function* () {
     yield* set("OPENAI_API_KEY", "test-openai-key")

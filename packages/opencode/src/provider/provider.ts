@@ -1476,14 +1476,29 @@ const layer = Layer.effect(
 
         // extend database from config
         for (const [providerID, provider] of configProviders) {
-          const existing = database[providerID]
+          // Allow a config provider to inherit a models.dev catalog under a
+          // different key via an explicit `id` alias. This lets multiple
+          // provider entries (e.g. two accounts) reuse the same upstream
+          // catalog while keeping distinct credentials/options.
+          const existing = database[providerID] ?? (provider.id ? database[provider.id] : undefined)
           const parsed: Info = {
             id: ProviderV2.ID.make(providerID),
             name: provider.name ?? existing?.name ?? providerID,
             env: provider.env ?? existing?.env ?? [],
             options: mergeDeep(existing?.options ?? {}, provider.options ?? {}),
             source: "config",
-            models: existing?.models ?? {},
+            // Deep clone inherited models and re-stamp providerID to the config
+            // key. Without the clone an aliased provider would mutate the shared
+            // catalog; without the re-stamp model resolution would look up the
+            // wrong provider's credentials.
+            models: existing
+              ? Object.fromEntries(
+                  Object.entries(existing.models).map(([id, model]) => [
+                    id,
+                    { ...structuredClone(model), providerID: ProviderV2.ID.make(providerID) },
+                  ]),
+                )
+              : {},
           }
 
           for (const [modelID, model] of Object.entries(provider.models ?? {})) {
