@@ -134,6 +134,18 @@ const targets = singleFlag
     })
   : allTargets
 
+const onlyArg = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length)
+const buildTargets = onlyArg
+? allTargets.filter((item) =>
+   onlyArg.split(",").includes(
+     [item.os === "win32" ? "windows" : item.os, item.arch, item.avx2 === false ? "baseline" :
+undefined, item.abi]
+       .filter(Boolean)
+       .join("-"),
+   ),
+ )
+: targets
+
 await $`rm -rf dist`
 
 const binaries: Record<string, string> = {}
