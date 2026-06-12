@@ -146,7 +146,10 @@ undefined, item.abi]
  )
 : targets
 
-await $`rm -rf dist`
+const outdirArg = process.argv.find((a) => a.startsWith("--outdir="))?.slice("--outdir=".length)
+const outdir = path.resolve(dir, outdirArg || "dist")
+
+await $`rm -rf ${outdir}`
 
 const binaries: Record<string, string> = {}
 if (!skipInstall) {
@@ -166,7 +169,7 @@ for (const item of buildTargets) {
     .filter(Boolean)
     .join("-")
   console.log(`building ${name}`)
-  await $`mkdir -p dist/${name}/bin`
+  await $`mkdir -p ${outdir}/${name}/bin`
 
   const workerPath = "./src/cli/tui/worker.ts"
   const treeSitterWorkerPath = "opentui-tree-sitter-worker.js"
@@ -187,7 +190,7 @@ for (const item of buildTargets) {
       autoloadTsconfig: true,
       autoloadPackageJson: true,
       target: name.replace(pkg.name, "bun") as any,
-      outfile: `dist/${name}/bin/opencode`,
+      outfile: `${outdir}/${name}/bin/opencode`,
       execArgv: [`--user-agent=opencode/${Script.version}`, "--use-system-ca", "--"],
       windows: {},
     },
@@ -215,7 +218,7 @@ for (const item of buildTargets) {
 
   // Smoke test: only run if binary is for current platform
   if (item.os === process.platform && item.arch === process.arch && !item.abi) {
-    const binaryPath = `dist/${name}/bin/opencode`
+    const binaryPath = `${outdir}/${name}/bin/opencode`
     console.log(`Running smoke test: ${binaryPath} --version`)
     try {
       const versionOutput = await $`${binaryPath} --version`.text()
@@ -226,8 +229,8 @@ for (const item of buildTargets) {
     }
   }
 
-  await $`rm -rf ./dist/${name}/bin/tui`
-  await Bun.file(`dist/${name}/package.json`).write(
+  await $`rm -rf ${outdir}/${name}/bin/tui`
+  await Bun.file(`${outdir}/${name}/package.json`).write(
     JSON.stringify(
       {
         name,
@@ -247,12 +250,12 @@ for (const item of buildTargets) {
 if (Script.release) {
   for (const key of Object.keys(binaries)) {
     if (key.includes("linux")) {
-      await $`tar -czf ../../${key}.tar.gz *`.cwd(`dist/${key}/bin`)
+      await $`tar -czf ${path.resolve(dir, `${key}.tar.gz`)} *`.cwd(`${outdir}/${key}/bin`)
     } else {
-      await $`zip -r ../../${key}.zip *`.cwd(`dist/${key}/bin`)
+      await $`zip -r ${path.resolve(dir, `${key}.zip`)} *`.cwd(`${outdir}/${key}/bin`)
     }
   }
-  await $`gh release upload v${Script.version} ./dist/*.zip ./dist/*.tar.gz --clobber --repo ${process.env.GH_REPO}`
+  await $`gh release upload v${Script.version} ${outdir}/*.zip ${outdir}/*.tar.gz --clobber --repo ${process.env.GH_REPO}`
 }
 
 export { binaries }
