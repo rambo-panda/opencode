@@ -24,7 +24,7 @@ import { SplitBorder } from "../../ui/border"
 import { useTuiPaths, useTuiTerminalEnvironment } from "../../context/runtime"
 import { Spinner } from "../../component/spinner"
 import { createSyntaxStyleMemo, generateSubtleSyntax, selectedForeground, useTheme } from "../../context/theme"
-import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, TextAttributes, RGBA } from "@opentui/core"
+import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, TextAttributes, RGBA, MouseEvent } from "@opentui/core"
 import { Prompt, type PromptRef } from "../../component/prompt"
 import type {
   AssistantMessage,
@@ -1194,6 +1194,13 @@ export function Session() {
                 stickyStart="bottom"
                 flexGrow={1}
                 scrollAcceleration={scrollAcceleration()}
+                onMouse={(evt: MouseEvent) => {
+                  if (evt.type === "wheel" && scroll) {
+                    const direction = (evt as any).deltaY || 0
+                    scroll.scrollBy(direction > 0 ? 3 : -3)
+                    evt.preventDefault()
+                  }
+                }}
               >
                 <box height={1} />
                 <For each={messages()}>
