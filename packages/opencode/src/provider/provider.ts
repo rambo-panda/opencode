@@ -1208,6 +1208,7 @@ interface State {
   sdk: Map<string, BundledSDK>
   modelLoaders: Record<string, CustomModelLoader>
   varsLoaders: Record<string, CustomVarsLoader>
+  bridge: EffectBridge.Shape
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Provider") {}
@@ -1736,6 +1737,7 @@ const layer = Layer.effect(
           sdk,
           modelLoaders,
           varsLoaders,
+          bridge,
         }
       }),
     )
@@ -1828,6 +1830,21 @@ const layer = Layer.effect(
 
           const combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
           if (combined) opts.signal = combined
+
+          const hookOutput = await s.bridge.promise(
+            plugin.trigger(
+              "llm.request.before",
+              {
+                provider: model.providerID,
+                model: model.id,
+                url: typeof input === "string" ? input : input.toString(),
+              },
+              { body: opts.body, headers: opts.headers },
+            ),
+          )
+
+          opts.body = hookOutput?.body ?? opts.body
+          opts.headers = hookOutput?.headers ?? opts.headers
 
           const res = await fetchFn(input, {
             ...opts,

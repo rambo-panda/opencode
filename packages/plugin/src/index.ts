@@ -332,4 +332,26 @@ export interface Hooks {
    * Modify tool definitions (description and parameters) sent to LLM
    */
   "tool.definition"?: (input: { toolID: string }, output: { description: string; parameters: any }) => Promise<void>
+  /**
+   * Intercept and modify raw HTTP request before sending to LLM provider.
+   * Called after all parameter construction, right before the actual HTTP request.
+   * 
+   * Use cases:
+   * - Fix parameter incompatibilities between protocols (e.g., max_output_tokens vs max_tokens)
+   * - Add custom headers for specific providers
+   * - Transform request body for gateway requirements
+   * - Debug/log actual requests sent to providers
+   */
+  "llm.request.before"?: (
+    input: {
+      provider: string
+      model: string
+      url: string
+      sessionID?: string
+    },
+    output: {
+      body: Record<string, any>
+      headers: Record<string, string>
+    }
+  ) => Promise<void>
 }
