@@ -29,18 +29,14 @@ if [ "$HAS_OUTDIR" = false ]; then
 fi
 
 if [ -z "${OPENCODE_VERSION:-}" ]; then
-  NEAREST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
-  if [ -n "$NEAREST_TAG" ]; then
-    OPENCODE_VERSION="${NEAREST_TAG#v}"
-    echo "👉 OPENCODE_VERSION auto-detected: $OPENCODE_VERSION (from $(git describe --tags --abbrev=0 2>/dev/null))"
+  git fetch --tags
+  LATEST_TAG="$(git tag --sort=-creatordate | grep -E '^v[0-9]' | head -1 2>/dev/null || true)"
+  if [ -n "$LATEST_TAG" ]; then
+    git rebase "$LATEST_TAG" 2>/dev/null || true
+    OPENCODE_VERSION="${LATEST_TAG#v}"
+    echo "👉 OPENCODE_VERSION auto-detected: $OPENCODE_VERSION (from $LATEST_TAG)"
   else
-    LATEST_TAG="$(git tag -l 'v[0-9]*' | sort -V | tail -1 2>/dev/null || true)"
-    if [ -n "$LATEST_TAG" ]; then
-      OPENCODE_VERSION="${LATEST_TAG#v}"
-      echo "👉 OPENCODE_VERSION auto-detected: $OPENCODE_VERSION (latest tag, not reachable from HEAD)"
-    else
-      echo "⚠️  No git tag found; OPENCODE_VERSION left unset (build will derive from npm registry)"
-    fi
+    echo "⚠️  No git tag found; OPENCODE_VERSION left unset (build will derive from npm registry)"
   fi
   export OPENCODE_VERSION
 fi

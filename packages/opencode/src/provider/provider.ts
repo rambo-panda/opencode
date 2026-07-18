@@ -1484,7 +1484,7 @@ const layer = Layer.effect(
           const existing = database[providerID] ?? (provider.id ? database[provider.id] : undefined)
           const parsed: Info = {
             id: ProviderV2.ID.make(providerID),
-            name: provider.name ?? existing?.name ?? providerID,
+            name: provider.name ?? providerID,
             env: provider.env ?? existing?.env ?? [],
             options: mergeDeep(existing?.options ?? {}, provider.options ?? {}),
             source: "config",
