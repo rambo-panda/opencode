@@ -80,7 +80,8 @@ if [ -z "${OPENCODE_VERSION:-}" ]; then
   LATEST_TAG="$(git tag --sort=-creatordate | grep -E '^v[0-9]' | head -1 2>/dev/null || true)"
   if [ -n "$LATEST_TAG" ]; then
     git rebase "$LATEST_TAG" 2>/dev/null || true
-    OPENCODE_VERSION="${LATEST_TAG#v}"
+    #OPENCODE_VERSION="${LATEST_TAG#v}"
+    OPENCODE_VERSION="${LATEST_TAG}"
     echo "👉 OPENCODE_VERSION auto-detected: $OPENCODE_VERSION (from $LATEST_TAG)"
   else
     echo "⚠️  No git tag found; OPENCODE_VERSION left unset (build will derive from npm registry)"
