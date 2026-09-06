@@ -52,7 +52,6 @@ import { DialogConfirm } from "../../ui/dialog-confirm"
 import { DialogTimeline } from "./dialog-timeline"
 import { DialogForkFromTimeline } from "./dialog-fork-from-timeline"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
-import { DialogSessionDelete } from "../../component/dialog-session-delete"
 import { Sidebar } from "./sidebar"
 import { SubagentFooter } from "./subagent-footer.tsx"
 import { filetype } from "../../util/filetype"
@@ -513,18 +512,6 @@ export function Session() {
       },
       run: () => {
         dialog.replace(() => <DialogSessionRename session={route.sessionID} />)
-      },
-    },
-    {
-      title: "Delete session",
-      value: "session.delete",
-      category: "Session",
-      slash: {
-        name: "delete",
-      },
-      run: () => {
-        const sessionID = route.sessionID
-        dialog.replace(() => <DialogSessionDelete sessionID={sessionID} />)
       },
     },
     {

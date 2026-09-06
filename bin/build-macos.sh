@@ -76,16 +76,13 @@ if [ "$HAS_OUTDIR" = false ]; then
 fi
 
 if [ -z "${OPENCODE_VERSION:-}" ]; then
-  git fetch --tags
-  LATEST_TAG="$(git tag --sort=-creatordate | grep -E '^v[0-9]' | head -1 2>/dev/null || true)"
-  if [ -n "$LATEST_TAG" ]; then
-    echo "👉 Rebasing current branch onto: $LATEST_TAG"
-    git rebase "$LATEST_TAG"
-    #OPENCODE_VERSION="${LATEST_TAG#v}"
-    OPENCODE_VERSION="${LATEST_TAG}"
-    echo "👉 OPENCODE_VERSION auto-detected: $OPENCODE_VERSION (from $LATEST_TAG)"
+  git fetch upstream --tags
+  BASE_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)"
+  if [ -n "$BASE_TAG" ]; then
+    OPENCODE_VERSION="$BASE_TAG"
+    echo "👉 OPENCODE_VERSION auto-detected: $OPENCODE_VERSION (from current branch base tag)"
   else
-    echo "⚠️  No git tag found; OPENCODE_VERSION left unset (build will derive from npm registry)"
+    echo "⚠️  No stable tag is reachable from HEAD; OPENCODE_VERSION left unset (build will derive from npm registry)"
   fi
   export OPENCODE_VERSION
 fi
