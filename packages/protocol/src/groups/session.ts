@@ -155,6 +155,21 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
       ),
     )
     .add(
+      HttpApiEndpoint.get("session.state", "/api/session/:sessionID/state", {
+        params: { sessionID: Session.ID },
+        success: Schema.Struct({ data: SessionInput.State }),
+        error: SessionNotFoundError,
+      })
+        .middleware(sessionLocationMiddleware)
+        .annotateMerge(
+          OpenApi.annotations({
+            identifier: "v2.session.state",
+            summary: "Get execution and pending inputs",
+            description: "Read process-local execution state and durable pending inputs ordered by admission sequence.",
+          }),
+        ),
+    )
+    .add(
       HttpApiEndpoint.get("session.get", "/api/session/:sessionID", {
         params: { sessionID: Session.ID },
         success: Schema.Struct({ data: Session.Info }),
@@ -210,7 +225,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
           delivery: SessionInput.Delivery.pipe(Schema.optional),
           resume: Schema.Boolean.pipe(Schema.optional),
         }),
-        success: Schema.Struct({ data: SessionInput.Admitted }),
+        success: Schema.Struct({ data: SessionInput.Receipt }),
         error: [ConflictError, SessionNotFoundError],
       })
         .middleware(sessionLocationMiddleware)

@@ -66,7 +66,6 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
   >()
   const timestamp = DateTime.now
   let assistantMessageID: SessionMessage.ID | undefined
-  let assistantActive = false
   let assistantFailed = false
   let providerFailed = false
   let stepSettlement: { readonly finish: string; readonly tokens: ReturnType<typeof tokens> } | undefined
@@ -74,7 +73,6 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
   const startAssistant = Effect.fnUntraced(function* () {
     if (assistantMessageID !== undefined) return assistantMessageID
     assistantMessageID = SessionMessage.ID.create()
-    assistantActive = true
     yield* events.publish(SessionEvent.Step.Started, {
       ...input,
       assistantMessageID,
@@ -200,7 +198,6 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
     if (assistantFailed) return
     yield* flush()
     const assistantMessageID = yield* startAssistant()
-    assistantActive = false
     assistantFailed = true
     yield* events.publish(SessionEvent.Step.Failed, {
       sessionID: input.sessionID,
@@ -395,7 +392,6 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
       }
       case "step-finish":
         yield* flush()
-        assistantActive = false
         if (stepSettlement) return yield* Effect.die("Duplicate step finish")
         stepSettlement = { finish: event.reason, tokens: tokens(event.usage) }
         return
@@ -413,10 +409,10 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
     flush,
     failAssistant,
     failUnsettledTools,
-    hasActiveAssistant: () => assistantActive,
     hasAssistantStarted: () => assistantMessageID !== undefined,
     hasProviderError: () => providerFailed,
-    stepSettlement: () => stepSettlement,
+    // Tool settlement can be interrupted after provider step-finish; failure remains terminal.
+    stepSettlement: () => (assistantFailed ? undefined : stepSettlement),
     startAssistant,
     assistantMessageID: assistantMessageIDForTool,
   }

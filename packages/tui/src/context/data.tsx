@@ -121,7 +121,16 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       },
     }
 
+    const hydrating = new Map<string, V2Event[]>()
+    const refreshing = new Map<string, Promise<void>>()
     function handleEvent(event: V2Event) {
+      if ("sessionID" in event.data && typeof event.data.sessionID === "string") {
+        const buffered = hydrating.get(event.data.sessionID)
+        if (buffered) {
+          buffered.push(event)
+          return
+        }
+      }
       switch (event.type) {
         case "catalog.updated":
           void Promise.all([
@@ -244,6 +253,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           break
         case "session.next.text.started":
           message.update(event.data.sessionID, (draft) => {
+            if (message.latestText(message.assistant(draft, event.data.assistantMessageID), event.data.textID)) return
             message.assistant(draft, event.data.assistantMessageID)?.content.push({
               type: "text",
               id: event.data.textID,
@@ -265,6 +275,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           break
         case "session.next.tool.input.started":
           message.update(event.data.sessionID, (draft) => {
+            if (message.latestTool(message.assistant(draft, event.data.assistantMessageID), event.data.callID)) return
             message.assistant(draft, event.data.assistantMessageID)?.content.push({
               type: "tool",
               id: event.data.callID,
@@ -344,6 +355,10 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           break
         case "session.next.reasoning.started":
           message.update(event.data.sessionID, (draft) => {
+            if (
+              message.latestReasoning(message.assistant(draft, event.data.assistantMessageID), event.data.reasoningID)
+            )
+              return
             message.assistant(draft, event.data.assistantMessageID)?.content.push({
               type: "reasoning",
               id: event.data.reasoningID,
@@ -426,9 +441,23 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           list(sessionID: string) {
             return store.session.message[sessionID]
           },
-          async refresh(sessionID: string) {
-            const result = await sdk.client.v2.session.messages({ sessionID }, { throwOnError: true })
-            setStore("session", "message", sessionID, result.data.data)
+          refresh(sessionID: string): Promise<void> {
+            const existing = refreshing.get(sessionID)
+            if (existing) return existing
+            const buffered: V2Event[] = []
+            hydrating.set(sessionID, buffered)
+            const task = sdk.client.v2.session
+              .messages({ sessionID, limit: 100 }, { throwOnError: true })
+              .then((result) => {
+                setStore("session", "message", sessionID, result.data.data)
+              })
+              .finally(() => {
+                hydrating.delete(sessionID)
+                buffered.forEach(handleEvent)
+                refreshing.delete(sessionID)
+              })
+            refreshing.set(sessionID, task)
+            return task
           },
         },
         permission: {

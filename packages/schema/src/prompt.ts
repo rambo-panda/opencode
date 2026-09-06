@@ -1,6 +1,13 @@
 import { Schema } from "effect"
 import { optional } from "./schema"
 import { statics } from "./schema"
+import { Model } from "./model"
+
+export const Selection = Schema.Struct({
+  agent: Schema.String.pipe(optional),
+  model: Model.Ref.pipe(optional),
+}).annotate({ identifier: "Prompt.Selection" })
+export interface Selection extends Schema.Schema.Type<typeof Selection> {}
 
 export interface Source extends Schema.Schema.Type<typeof Source> {}
 export const Source = Schema.Struct({
@@ -40,6 +47,7 @@ export const AgentAttachment = Schema.Struct({
 export interface Prompt extends Schema.Schema.Type<typeof Prompt> {}
 export const Prompt = Schema.Struct({
   text: Schema.String,
+  selection: Selection.pipe(optional),
   files: Schema.Array(FileAttachment).pipe(optional),
   agents: Schema.Array(AgentAttachment).pipe(optional),
 })

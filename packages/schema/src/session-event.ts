@@ -12,6 +12,7 @@ import { SessionID } from "./session-id"
 import { Location } from "./location"
 import { SessionMessage } from "./session-message"
 import { Revert } from "./revert"
+import { SessionInput } from "./session-input"
 
 export { FileAttachment }
 
@@ -97,6 +98,11 @@ export const PromptAdmitted = Event.define({
   schema: PromptFields,
 })
 export type PromptAdmitted = typeof PromptAdmitted.Type
+
+export const ExecutionChanged = Event.define({
+  type: "session.next.execution.changed",
+  schema: { sessionID: SessionID, status: SessionInput.Execution },
+})
 
 export const ContextUpdated = Event.define({
   type: "session.next.context.updated",
@@ -477,6 +483,7 @@ export const DurableDefinitions = Event.inventory(
 )
 
 export const Definitions = Event.inventory(
+  ExecutionChanged,
   AgentSwitched,
   ModelSwitched,
   Moved,

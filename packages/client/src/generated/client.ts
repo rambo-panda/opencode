@@ -9,6 +9,8 @@ import type {
   SessionsCreateInput,
   SessionsCreateOutput,
   SessionsActiveOutput,
+  SessionsStateInput,
+  SessionsStateOutput,
   SessionsGetInput,
   SessionsGetOutput,
   SessionsSwitchAgentInput,
@@ -328,6 +330,17 @@ export function make(options: ClientOptions) {
             path: `/api/session/active`,
             successStatus: 200,
             declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ).then((value) => value.data),
+      state: (input: SessionsStateInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionsStateOutput }>(
+          {
+            method: "GET",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/state`,
+            successStatus: 200,
+            declaredStatuses: [404, 400, 401],
             empty: false,
           },
           requestOptions,

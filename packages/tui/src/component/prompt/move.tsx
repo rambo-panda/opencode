@@ -11,10 +11,6 @@ import { DialogWorkspaceFileChanges } from "../dialog-workspace-file-changes"
 import { useHomeSessionDestination } from "../../routes/home/session-destination"
 import { useProject } from "../../context/project"
 
-function moveReminderText(directory: string) {
-  return `<system-reminder>The user has changed the current working directory to "${directory}". This is still the same project but at a possibly new location; take this into account when working with any files from now on.</system-reminder>`
-}
-
 export function usePromptMove(input: { projectID: () => string | undefined; sessionID: () => string | undefined }) {
   const dialog = useDialog()
   const sdk = useSDK()
@@ -115,6 +111,10 @@ export function usePromptMove(input: { projectID: () => string | undefined; sess
   }
 
   async function moveExistingSession(sessionID: string, selection: MoveSessionSelection) {
+    if (sync.session.status(sessionID) !== "idle" || sync.data.session_pending[sessionID]?.length) {
+      toast.show({ variant: "warning", message: "Wait for admitted follow-ups to finish before moving this session" })
+      return
+    }
     const session = sync.session.get(sessionID)
     const status = await sdk.client.vcs.status({ directory: session?.directory }).catch(() => undefined)
     const choice = status?.data?.length ? await DialogWorkspaceFileChanges.show(dialog, status.data) : "no"
@@ -136,20 +136,8 @@ export function usePromptMove(input: { projectID: () => string | undefined; sess
         },
         { throwOnError: true },
       )
-      await sdk.client.session
-        .promptAsync({
-          sessionID,
-          directory,
-          noReply: true,
-          parts: [
-            {
-              type: "text",
-              text: moveReminderText(directory),
-              synthetic: true,
-            },
-          ],
-        })
-        .catch(() => undefined)
+      // V2 rebuilds Location system context on the next drain; no legacy prompt is needed.
+      await sync.session.sync(sessionID, true)
       dialog.clear()
     } catch (error) {
       toast.error(error)

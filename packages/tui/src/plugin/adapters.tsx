@@ -135,7 +135,8 @@ function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
         return sync.data.message[sessionID] ?? []
       },
       status(sessionID) {
-        return sync.data.session_status[sessionID]
+        const status = sync.data.session_status[sessionID]
+        return status?.type === "stopping" ? { type: "busy" } : status
       },
       permission(sessionID) {
         return sync.data.permission[sessionID] ?? []

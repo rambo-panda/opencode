@@ -114,6 +114,7 @@ export interface Interface {
   readonly list: (input?: ListInput) => Effect.Effect<SessionSchema.Info[]>
   readonly create: (input: CreateInput) => Effect.Effect<SessionSchema.Info>
   readonly get: (sessionID: SessionSchema.ID) => Effect.Effect<SessionSchema.Info, NotFoundError>
+  readonly state: (sessionID: SessionSchema.ID) => Effect.Effect<SessionInput.State, NotFoundError>
   readonly messages: (input: {
     sessionID: SessionSchema.ID
     limit?: number
@@ -150,7 +151,7 @@ export interface Interface {
     prompt: PromptInput.Prompt
     delivery?: SessionInput.Delivery
     resume?: boolean
-  }) => Effect.Effect<SessionInput.Admitted, NotFoundError | PromptConflictError>
+  }) => Effect.Effect<SessionInput.Receipt, NotFoundError | PromptConflictError>
   readonly shell: (input: {
     id?: EventV2.ID
     sessionID: SessionSchema.ID
@@ -205,6 +206,20 @@ const layer = Layer.effect(
       )
 
     const result = Service.of({
+      state: Effect.fn("V2Session.state")(function* (sessionID) {
+        yield* result.get(sessionID)
+        const snapshot = yield* db
+          .transaction(() =>
+            Effect.gen(function* () {
+              return {
+                pending: yield* SessionInput.pending(db, sessionID),
+                after: yield* EventV2.latestSequence(db, sessionID),
+              }
+            }),
+          )
+          .pipe(Effect.orDie)
+        return { ...snapshot, execution: yield* execution.status(sessionID) }
+      }),
       create: Effect.fn("V2Session.create")(function* (input) {
         const sessionID = input.id ?? SessionSchema.ID.create()
         const recorded = yield* store.get(sessionID)
@@ -460,6 +475,7 @@ const layer = Layer.effect(
 const resolvePrompt = (input: PromptInput.Prompt) =>
   Prompt.make({
     text: input.text,
+    selection: input.selection,
     agents: input.agents,
     files: input.files?.map((file) => {
       const dataMime = file.uri.match(/^data:([^;,]+)[;,]/i)?.[1]

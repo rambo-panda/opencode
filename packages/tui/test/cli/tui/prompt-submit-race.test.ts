@@ -1,98 +1,105 @@
-import { describe, expect, test } from "bun:test"
+import { expect, test } from "bun:test"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2"
+import { createFetch } from "../../fixture/tui-sdk"
+import { createPromptSubmission, type SubmissionSnapshot } from "../../../src/component/prompt/submission"
 
-// Regression test for the prompt submit race in
-// packages/tui/src/component/prompt/index.tsx (`submit`).
-//
-// Before the fix, two concurrent `submit()` calls (e.g. a double-pressed
-// Enter, or the input's native onSubmit racing another dispatch) each
-// passed the `if (!store.prompt.input) return false` guard, each
-// `await sdk.client.session.create(...)`, and each only captured
-// `inputText = store.prompt.input` AFTER that await. The first invocation
-// finished, sent the prompt, and cleared the store; the second invocation,
-// now past its await, read the cleared store and sent an empty prompt to a
-// second freshly-created session - leaving an orphaned session with the
-// user's actual text and a phantom session visible to the user containing
-// only an assistant reply.
-//
-// `submitMirror` below has the exact shape of the production `submit()`
-// after the fix: an in-flight `submitting` guard wraps the original body.
-// Two concurrent invocations must result in exactly one submission carrying
-// the user's text, with no empty-text submission.
-
-type Store = { input: string }
-
-type SubmitResult = { sessionID: string; text: string }
-
-type Harness = {
-  store: Store
-  submissions: SubmitResult[]
-  createSession(): Promise<string>
-  sendPrompt(sessionID: string, text: string): Promise<void>
-}
-
-function createHarness(opts: { sessionCreateDelayMs: number }): Harness {
-  let sessionCounter = 0
-  const submissions: SubmitResult[] = []
-
+function snapshot(): SubmissionSnapshot {
   return {
-    store: { input: "" },
-    submissions,
-    async createSession() {
-      sessionCounter += 1
-      const id = `ses_${sessionCounter}`
-      await Bun.sleep(opts.sessionCreateDelayMs)
-      return id
-    },
-    async sendPrompt(sessionID, text) {
-      submissions.push({ sessionID, text })
-    },
+    id: "msg_original",
+    sessionID: "ses_test",
+    delivery: "queue",
+    draft: { input: "follow up", parts: [] },
+    prompt: { text: "follow up", selection: { agent: "build", model: { providerID: "test", id: "model" } } },
+    create: false,
+    editor: false,
   }
 }
 
-function createSubmit() {
-  let submitting = false
-  return async function submit(h: Harness) {
-    if (submitting) return false
-    submitting = true
-    try {
-      if (!h.store.input) return false
-      const sessionID = await h.createSession()
-      const inputText = h.store.input
-      await h.sendPrompt(sessionID, inputText)
-      h.store.input = ""
-      return true
-    } finally {
-      submitting = false
-    }
+test("admission acknowledgement gates completion and concurrent submits do not create phantom messages", async () => {
+  const acknowledged = Promise.withResolvers<void>()
+  const received: SubmissionSnapshot[] = []
+  const submission = createPromptSubmission({
+    changed() {},
+    async send(value) {
+      received.push(value)
+      await acknowledged.promise
+      return { ...value, prompt: { text: value.prompt.text }, admittedSeq: 1, timeCreated: 0, status: "admitted" }
+    },
+  })
+  const original = snapshot()
+  const pending = submission.submit(() => original)
+  original.prompt.text = "edited while sending"
+  original.prompt.selection!.agent = "plan"
+  expect(submission.state.type).toBe("admitting")
+  expect(await submission.submit(snapshot)).toBeUndefined()
+  expect(received).toHaveLength(1)
+  expect(received[0].prompt.text).toBe("follow up")
+  expect(received[0].prompt.selection?.agent).toBe("build")
+  acknowledged.resolve()
+  expect((await pending)?.draft.input).toBe("follow up")
+  expect(submission.state.type).toBe("idle")
+})
+
+test("ambiguous admission retries the identical ID, delivery, attachments and selection and reconciles once", async () => {
+  const received: SubmissionSnapshot[] = []
+  const submission = createPromptSubmission({
+    changed() {},
+    async send(value) {
+      received.push(value)
+      if (received.length === 1) throw new TypeError("connection lost after commit")
+      return { ...value, prompt: { text: value.prompt.text }, admittedSeq: 7, timeCreated: 0, status: "reconciled" }
+    },
+  })
+  const original = snapshot()
+  original.prompt.files = [{ uri: "data:text/plain;base64,QQ==", name: "a.txt" }]
+  await expect(submission.submit(() => original)).rejects.toThrow("connection lost")
+  expect(submission.state.type).toBe("uncertain")
+  await submission.submit(() => ({ ...snapshot(), id: "msg_wrong", delivery: "steer" }))
+  expect(received[1]).toEqual(received[0])
+  expect(received[1].id).toBe("msg_original")
+  expect(submission.state.type).toBe("idle")
+})
+
+test("a declared rejection preserves the draft and allows a corrected new submission", async () => {
+  const received: SubmissionSnapshot[] = []
+  const submission = createPromptSubmission({
+    changed() {},
+    async send(value) {
+      received.push(value)
+      if (received.length === 1) throw { _tag: "ConflictError", message: "conflicting ID" }
+      return { ...value, prompt: { text: value.prompt.text }, admittedSeq: 8, timeCreated: 0, status: "admitted" }
+    },
+  })
+  const original = snapshot()
+  await expect(submission.submit(() => original)).rejects.toMatchObject({ _tag: "ConflictError" })
+  expect(original.draft.input).toBe("follow up")
+  expect(submission.state.type).toBe("error")
+  await submission.submit(() => ({ ...snapshot(), id: "msg_corrected" }))
+  expect(received[1].id).toBe("msg_corrected")
+})
+
+test("generated SDK wrapped request rejection is definite, while a server failure remains uncertain", async () => {
+  for (const status of [409, 500]) {
+    const sdk = createOpencodeClient({
+      baseUrl: "http://test",
+      fetch: createFetch(() =>
+        Response.json(
+          { _tag: status === 409 ? "ConflictError" : "UnknownError", message: "request failed" },
+          { status },
+        ),
+      ).fetch,
+    })
+    const submission = createPromptSubmission({
+      changed() {},
+      async send(value) {
+        const response = await sdk.v2.session.prompt(
+          { sessionID: value.sessionID, id: value.id, prompt: value.prompt },
+          { throwOnError: true },
+        )
+        return response.data.data
+      },
+    })
+    await expect(submission.submit(snapshot)).rejects.toThrow("request failed")
+    expect(submission.state.type).toBe(status === 409 ? "error" : "uncertain")
   }
-}
-
-describe("Prompt.submit race", () => {
-  test("concurrent submits must not lose the user's text", async () => {
-    const submit = createSubmit()
-    const h = createHarness({ sessionCreateDelayMs: 5 })
-    h.store.input = "Hello there."
-
-    // Two invocations back-to-back, mimicking a double-Enter.
-    await Promise.all([submit(h), submit(h)])
-
-    // Every submission that did make it through must carry the actual user
-    // text, and no submission may have an empty text payload.
-    expect(h.submissions.every((s) => s.text === "Hello there.")).toBe(true)
-    expect(h.submissions.some((s) => s.text === "")).toBe(false)
-  })
-
-  test("a sequential second submit after clear is a no-op, not a phantom session", async () => {
-    const submit = createSubmit()
-    const h = createHarness({ sessionCreateDelayMs: 1 })
-    h.store.input = "Hello there."
-
-    await submit(h)
-    // After the first submission completes, the store is cleared; a second
-    // Enter on an empty input must not create a phantom session.
-    await submit(h)
-
-    expect(h.submissions).toHaveLength(1)
-    expect(h.submissions[0].text).toBe("Hello there.")
-  })
 })

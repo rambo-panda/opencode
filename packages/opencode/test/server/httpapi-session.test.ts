@@ -1,4 +1,7 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
+import { OpenCode } from "../../../client/src/effect"
+import { SessionInput } from "@opencode-ai/schema/session-input"
+import { AbsolutePath } from "@opencode-ai/schema/schema"
 import { afterEach, describe, expect } from "bun:test"
 import { NodeHttpServer, NodeServices } from "@effect/platform-node"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
@@ -577,12 +580,13 @@ describe("session HttpApi", () => {
           })
         const first = yield* recordPrompt()
         const retried = yield* recordPrompt()
-        type PromptBody = { id: string; prompt: { text: string }; delivery: string; promotedSeq?: number }
+        type PromptBody = typeof SessionInput.Receipt.Encoded
         const firstBody = yield* json<{ data: PromptBody }>(first)
         const retriedBody = yield* json<{ data: PromptBody }>(retried)
         expect(first.status).toBe(200)
         expect(retried.status).toBe(200)
-        expect(retriedBody).toEqual(firstBody)
+        expect(firstBody.data.status).toBe("admitted")
+        expect(retriedBody).toEqual({ data: { ...firstBody.data, status: "reconciled" } })
         expect(firstBody).toMatchObject({
           data: { id: "msg_http_prompt", prompt: { text: "hello" }, delivery: "steer" },
         })
@@ -635,6 +639,238 @@ describe("session HttpApi", () => {
       }),
     { git: true, config: { formatter: false, lsp: false } },
   )
+
+  it.instance(
+    "hydrates durable steer and FIFO queue through generated v2 clients and rejects conflicting retries",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const client = yield* OpenCode.make()
+        const session = yield* client.sessions.create({ location: { directory: AbsolutePath.make(test.directory) } })
+        const other = yield* client.sessions.create({ location: session.location })
+        expect(yield* client.sessions.state({ sessionID: session.id })).toMatchObject({
+          execution: { type: "idle" },
+          pending: [],
+        })
+        const prompt = {
+          id: SessionMessage.ID.create(),
+          sessionID: session.id,
+          prompt: {
+            text: "Steer A",
+            selection: {
+              agent: "build",
+              model: { id: ModelV2.ID.make("test-model"), providerID: ProviderV2.ID.make("test") },
+            },
+          },
+          resume: false,
+        }
+        const first = yield* client.sessions.prompt(prompt)
+        expect(first).toMatchObject({ status: "admitted", delivery: "steer", prompt: prompt.prompt })
+        expect(yield* client.sessions.prompt(prompt)).toEqual({ ...first, status: "reconciled" })
+        for (const conflicting of [
+          { ...prompt, delivery: "queue" as const },
+          { ...prompt, sessionID: other.id },
+          { ...prompt, prompt: { ...prompt.prompt, selection: { agent: "plan" } } },
+        ]) {
+          const conflict = yield* client.sessions.prompt(conflicting).pipe(Effect.flip)
+          expect(conflict).toMatchObject({ _tag: "ConflictError", resource: first.id })
+        }
+        const queued = yield* Effect.forEach(["Queued B", "Queued C"], (text) =>
+          client.sessions.prompt({
+            sessionID: session.id,
+            id: SessionMessage.ID.create(),
+            prompt: { text },
+            delivery: "queue",
+            resume: false,
+          }),
+        )
+        const reconnected = yield* OpenCode.make()
+        const state = yield* reconnected.sessions.state({ sessionID: session.id })
+        expect(state.pending.map((input) => input.id)).toEqual([first.id, ...queued.map((input) => input.id)])
+        expect(state.pending.map((input) => input.delivery)).toEqual(["steer", "queue", "queue"])
+        expect(state.pending.map((input) => input.admittedSeq)).toEqual(
+          state.pending.map((input) => input.admittedSeq).toSorted((a, b) => a - b),
+        )
+        expect(state.after).toBe(queued[1]!.admittedSeq)
+        yield* client.sessions.interrupt({ sessionID: session.id })
+        yield* client.sessions.interrupt({ sessionID: other.id })
+        expect(yield* client.sessions.state({ sessionID: session.id })).toEqual(state)
+        const history = yield* reconnected.sessions.history({ sessionID: session.id })
+        expect(
+          history.data
+            .filter((event) => event.type === "session.next.prompt.admitted")
+            .map((event) => event.data.messageID),
+        ).toEqual(state.pending.map((input) => input.id))
+        expect((yield* reconnected.messages.list({ sessionID: session.id })).data).toEqual([])
+      }),
+    { git: true, config: { formatter: false, lsp: false } },
+  )
+
+  it.live("V2 hello responds with legacy environment-substituted provider configuration", () =>
+    Effect.gen(function* () {
+      const llm = yield* TestLLMServer
+      yield* llm.text("Hello from the configured provider")
+      const variables = { HELLO_HTTP_PROVIDER_URL: llm.url, HELLO_HTTP_PROVIDER_KEY: "test-key" }
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          const previous = Object.fromEntries(Object.keys(variables).map((name) => [name, process.env[name]]))
+          Object.assign(process.env, variables)
+          return previous
+        }),
+        (previous) =>
+          Effect.sync(() => {
+            for (const [name, value] of Object.entries(previous)) {
+              if (value === undefined) delete process.env[name]
+              if (value !== undefined) process.env[name] = value
+            }
+          }),
+      )
+      const config = testProviderConfig("{env:HELLO_HTTP_PROVIDER_URL}")
+      const directory = yield* tmpdirScoped({
+        git: true,
+        config: {
+          ...config,
+          provider: {
+            test: {
+              ...config.provider.test,
+              env: undefined,
+              options: { ...config.provider.test.options, apiKey: "{env:HELLO_HTTP_PROVIDER_KEY}" },
+            },
+          },
+        },
+      })
+      const client = yield* OpenCode.make()
+      const session = yield* client.sessions.create({
+        location: { directory: AbsolutePath.make(directory) },
+        model: { id: ModelV2.ID.make("test-model"), providerID: ProviderV2.ID.make("test") },
+      })
+      const receipt = yield* client.sessions.prompt({ sessionID: session.id, prompt: { text: "hello" } })
+      expect(receipt.status).toBe("admitted")
+      yield* llm.wait(1).pipe(Effect.timeout("10 seconds"))
+      yield* pollWithTimeout(
+        client.sessions
+          .state({ sessionID: session.id })
+          .pipe(
+            Effect.map((state) => (state.execution.type === "idle" && state.pending.length === 0 ? state : undefined)),
+          ),
+        "hello did not settle after provider response",
+        "10 seconds",
+      )
+      expect(yield* llm.calls).toBe(1)
+      expect((yield* client.messages.list({ sessionID: session.id, order: "asc" })).data).toMatchObject([
+        { type: "user", text: "hello" },
+        { type: "assistant", finish: "stop", content: [{ type: "text", text: "Hello from the configured provider" }] },
+      ])
+    }).pipe(Effect.provide(TestLLMServer.layer), Effect.provide(AppNodeBuilder.build(CrossSpawnSpawner.node))),
+  )
+
+  for (const action of ["permission rejection", "interrupt"] as const) {
+    it.live(`Issue #13520: v2 HTTP ${action} automatically consumes steer and FIFO queue`, () =>
+      Effect.gen(function* () {
+        const llm = yield* TestLLMServer
+        const continuation = Promise.withResolvers<void>()
+        yield* Effect.addFinalizer(() => Effect.sync(() => continuation.resolve()))
+        yield* llm.tool("bash", { command: "printf followup-regression" })
+        yield* llm.hold("Steer handled", continuation.promise)
+        yield* llm.text("Queue B handled")
+        yield* llm.text("Queue C handled")
+        const config = testProviderConfig(llm.url)
+        const directory = yield* tmpdirScoped({
+          git: true,
+          config: {
+            ...config,
+            // An empty env method creates an unconnected V2 integration; this provider uses its configured key.
+            provider: { test: { ...config.provider.test, env: undefined } },
+            permission: { bash: "ask" },
+          },
+        })
+        const client = yield* OpenCode.make()
+        const session = yield* client.sessions.create({
+          location: { directory: AbsolutePath.make(directory) },
+          model: { id: ModelV2.ID.make("test-model"), providerID: ProviderV2.ID.make("test") },
+        })
+        yield* pollWithTimeout(
+          client.models
+            .list({ location: { directory } })
+            .pipe(Effect.map((response) => response.data.find((model) => model.providerID === "test"))),
+          "Configured V2 model never became available",
+          "10 seconds",
+        )
+        yield* client.sessions.prompt({ sessionID: session.id, prompt: { text: "Start permission-gated work" } })
+        const permission = yield* pollWithTimeout(
+          client.permissions.list({ sessionID: session.id }).pipe(Effect.map((requests) => requests[0])),
+          "V2 tool never requested permission",
+          "10 seconds",
+        )
+        const steer = yield* client.sessions.prompt({
+          sessionID: session.id,
+          id: SessionMessage.ID.create(),
+          prompt: { text: "Steer A" },
+        })
+        const queued = yield* Effect.forEach(["Queued B", "Queued C"], (text) =>
+          client.sessions.prompt({
+            sessionID: session.id,
+            id: SessionMessage.ID.create(),
+            prompt: { text },
+            delivery: "queue",
+          }),
+        )
+        const pending = yield* client.sessions.state({ sessionID: session.id })
+        expect(pending.execution.type).toBe("running")
+        expect(pending.pending.map((input) => input.id)).toEqual([steer.id, ...queued.map((input) => input.id)])
+        const retry = yield* client.sessions.prompt({
+          sessionID: session.id,
+          id: steer.id,
+          prompt: { text: "Steer A" },
+        })
+        expect(retry.status).toBe("reconciled")
+        const other = yield* client.sessions.create({ location: session.location })
+        yield* client.sessions.interrupt({ sessionID: other.id })
+        expect(yield* client.permissions.list({ sessionID: session.id })).toEqual([permission])
+        if (action === "permission rejection") {
+          yield* client.permissions.reply({ sessionID: session.id, requestID: permission.id, reply: "reject" })
+        }
+        if (action === "interrupt") yield* client.sessions.interrupt({ sessionID: session.id })
+        yield* llm.wait(2).pipe(Effect.timeout("10 seconds"))
+        expect((yield* client.sessions.state({ sessionID: session.id })).pending.map((input) => input.id)).toEqual(
+          queued.map((input) => input.id),
+        )
+        continuation.resolve()
+        yield* llm.wait(4).pipe(Effect.timeout("10 seconds"))
+        const settled = yield* pollWithTimeout(
+          client.sessions
+            .state({ sessionID: session.id })
+            .pipe(Effect.map((state) => (state.execution.type === "idle" ? state : undefined))),
+          "Follow-ups did not settle automatically",
+          "10 seconds",
+        )
+        expect(settled.pending).toEqual([])
+        expect(yield* llm.calls).toBe(4)
+        const transcript = yield* client.messages.list({ sessionID: session.id, order: "asc" })
+        expect(transcript.data.filter((message) => message.type === "user").map((message) => message.text)).toEqual([
+          "Start permission-gated work",
+          "Steer A",
+          "Queued B",
+          "Queued C",
+        ])
+        const history = yield* client.sessions.history({ sessionID: session.id, limit: 100 })
+        const ids = [steer.id, ...queued.map((input) => input.id)]
+        for (const type of ["session.next.prompt.admitted", "session.next.prompted"] as const) {
+          expect(
+            history.data.flatMap((event) =>
+              event.type === type && ids.includes(event.data.messageID) ? [event.data.messageID] : [],
+            ),
+          ).toEqual(ids)
+        }
+        const inputs = yield* llm.inputs
+        expect(JSON.stringify(inputs[1])).toContain("Steer A")
+        expect(JSON.stringify(inputs[1])).not.toContain("Queued B")
+        expect(JSON.stringify(inputs[2])).toContain("Queued B")
+        expect(JSON.stringify(inputs[2])).not.toContain("Queued C")
+        expect(JSON.stringify(inputs[3])).toContain("Queued C")
+      }).pipe(Effect.provide(TestLLMServer.layer), Effect.provide(AppNodeBuilder.build(CrossSpawnSpawner.node))),
+    )
+  }
 
   it.instance(
     "returns v2 public unavailable errors for unfinished session mutations",

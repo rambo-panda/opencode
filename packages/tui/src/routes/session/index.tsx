@@ -65,6 +65,7 @@ import { useEpilogue } from "../../context/epilogue"
 import { normalizePath } from "../../util/path"
 import { PermissionPrompt } from "./permission"
 import { QuestionPrompt } from "./question"
+import { PendingInputs } from "./pending"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
 import * as Model from "../../util/model"
 import { formatTranscript } from "../../util/transcript"
@@ -237,15 +238,13 @@ export function Session() {
     if (session()?.parentID) return []
     return children().flatMap((x) => sync.data.question[x.id] ?? [])
   })
-  const visible = createMemo(() => !session()?.parentID && permissions().length === 0 && questions().length === 0)
-  const disabled = createMemo(() => permissions().length > 0 || questions().length > 0)
-
-  const pending = createMemo(() => {
-    const completed = messages().findLastIndex((message) => message.role === "assistant" && message.time.completed)
-    const pending = messages().findLastIndex(
-      (message, index) => index > completed && message.role === "assistant" && !message.time.completed,
-    )
-    return pending === -1 ? undefined : pending
+  const [composing, setComposing] = createSignal(false)
+  const interaction = createMemo(() => permissions().length > 0 || questions().length > 0)
+  const visible = createMemo(() => !session()?.parentID && (!interaction() || composing()))
+  const disabled = createMemo(() => !visible())
+  const followupShortcut = useCommandShortcut("session.followup.focus")
+  createEffect(() => {
+    if (!interaction()) setComposing(false)
   })
 
   const lastAssistant = createMemo(() => {
@@ -567,20 +566,7 @@ export function Session() {
         aliases: ["summarize"],
       },
       run: () => {
-        const selectedModel = local.model.current()
-        if (!selectedModel) {
-          toast.show({
-            variant: "warning",
-            message: "Connect a provider to summarize this session",
-            duration: 3000,
-          })
-          return
-        }
-        void sdk.client.session.summarize({
-          sessionID: route.sessionID,
-          modelID: selectedModel.modelID,
-          providerID: selectedModel.providerID,
-        })
+        toast.show({ variant: "warning", message: "Manual compaction is not available in this session yet" })
         dialog.clear()
       },
     },
@@ -615,12 +601,14 @@ export function Session() {
         name: "undo",
       },
       run: async () => {
-        const status = sync.data.session_status?.[route.sessionID]
-        if (status?.type !== "idle") await sdk.client.session.abort({ sessionID: route.sessionID }).catch(() => {})
+        if (sync.session.status(route.sessionID) !== "idle" || sync.data.session_pending[route.sessionID]?.length) {
+          toast.show({ variant: "warning", message: "Wait for admitted follow-ups to finish before undoing messages" })
+          return
+        }
         const message = messagesBeforeRevert().findLast((item) => item.role === "user")
         if (!message) return
-        void sdk.client.session
-          .revert({
+        void sdk.client.v2.session.revert
+          .stage({
             sessionID: route.sessionID,
             messageID: message.id,
           })
@@ -652,18 +640,22 @@ export function Session() {
         name: "redo",
       },
       run: () => {
+        if (sync.session.status(route.sessionID) !== "idle" || sync.data.session_pending[route.sessionID]?.length) {
+          toast.show({ variant: "warning", message: "Wait for admitted follow-ups to finish before redoing messages" })
+          return
+        }
         dialog.clear()
         const messageID = session()?.revert?.messageID
         if (!messageID) return
         const message = messages().find((x) => x.role === "user" && x.id > messageID)
         if (!message) {
-          void sdk.client.session.unrevert({
+          void sdk.client.v2.session.revert.clear({
             sessionID: route.sessionID,
           })
           prompt?.set({ input: "", parts: [] })
           return
         }
-        void sdk.client.session.revert({
+        void sdk.client.v2.session.revert.stage({
           sessionID: route.sessionID,
           messageID: message.id,
         })
@@ -1099,6 +1091,18 @@ export function Session() {
   }))
 
   useBindings(() => ({
+    enabled: interaction(),
+    commands: [
+      {
+        name: "session.followup.focus",
+        title: "Switch between follow-up and pending interaction",
+        run: () => setComposing((value) => !value),
+      },
+    ],
+    bindings: tuiConfig.keybinds.get("session.followup.focus"),
+  }))
+
+  useBindings(() => ({
     bindings: tuiConfig.keybinds.gather("session.global", sessionGlobalBindingCommands),
   }))
 
@@ -1279,7 +1283,6 @@ export function Session() {
                           }}
                           message={message as UserMessage}
                           parts={sync.data.part[message.id] ?? []}
-                          pending={pending()}
                         />
                       </Match>
                       <Match when={message.role === "assistant"}>
@@ -1294,13 +1297,22 @@ export function Session() {
                 </For>
               </scrollbox>
               <box flexShrink={0}>
-                <Show when={permissions().length > 0}>
+                <PendingInputs inputs={sync.data.session_pending[route.sessionID] ?? []} />
+                <Show when={!visible() && sync.data.session_status[route.sessionID]?.type === "stopping"}>
+                  <text fg={theme.textMuted}>Stopping · admitted follow-ups will continue</text>
+                </Show>
+                <Show when={interaction()}>
+                  <text fg={theme.textMuted}>
+                    {followupShortcut()} {composing() ? "respond to pending request" : "write follow-up"}
+                  </text>
+                </Show>
+                <Show when={!composing() && permissions().length > 0}>
                   <PermissionPrompt
                     request={permissions()[0]}
                     directory={sync.session.get(permissions()[0].sessionID)?.directory}
                   />
                 </Show>
-                <Show when={permissions().length === 0 && questions().length > 0}>
+                <Show when={!composing() && permissions().length === 0 && questions().length > 0}>
                   <QuestionPrompt
                     request={questions()[0]}
                     directory={sync.session.get(questions()[0].sessionID)?.directory}
@@ -1361,13 +1373,7 @@ export function Session() {
   )
 }
 
-function UserMessage(props: {
-  message: UserMessage
-  parts: Part[]
-  onMouseUp: () => void
-  index: number
-  pending?: number
-}) {
+function UserMessage(props: { message: UserMessage; parts: Part[]; onMouseUp: () => void; index: number }) {
   const ctx = use()
   const local = useLocal()
   const text = createMemo(() => {
@@ -1384,10 +1390,8 @@ function UserMessage(props: {
   const files = createMemo(() => props.parts.flatMap((x) => (x.type === "file" ? [x] : [])))
   const { theme } = useTheme()
   const [hover, setHover] = createSignal(false)
-  const queued = createMemo(() => props.pending !== undefined && props.index > props.pending)
   const color = createMemo(() => local.agent.color(props.message.agent))
-  const queuedFg = createMemo(() => selectedForeground(theme, color()))
-  const metadataVisible = createMemo(() => queued() || ctx.showTimestamps())
+  const metadataVisible = createMemo(() => ctx.showTimestamps())
 
   const compaction = createMemo(() => props.parts.find((x) => x.type === "compaction"))
 
@@ -1434,21 +1438,8 @@ function UserMessage(props: {
                 </For>
               </box>
             </Show>
-            <Show
-              when={queued()}
-              fallback={
-                <Show when={ctx.showTimestamps()}>
-                  <text fg={theme.textMuted}>
-                    <span style={{ fg: theme.textMuted }}>
-                      {Locale.todayTimeOrDateTime(props.message.time.created)}
-                    </span>
-                  </text>
-                </Show>
-              }
-            >
-              <text fg={theme.textMuted}>
-                <span style={{ bg: color(), fg: queuedFg(), bold: true }}> QUEUED </span>
-              </text>
+            <Show when={ctx.showTimestamps()}>
+              <text fg={theme.textMuted}>{Locale.todayTimeOrDateTime(props.message.time.created)}</text>
             </Show>
           </box>
         </box>
@@ -1530,6 +1521,9 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
           </text>
         </box>
       </Show>
+      <Show when={props.message.error?.name === "MessageAbortedError"}>
+        <MessageInterrupted color={theme.error} />
+      </Show>
       <Show when={props.message.error && props.message.error.name !== "MessageAbortedError"}>
         <box
           ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
@@ -1564,14 +1558,19 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
               <Show when={duration()}>
                 <span style={{ fg: theme.textMuted }}> · {Locale.duration(duration())}</span>
               </Show>
-              <Show when={props.message.error?.name === "MessageAbortedError"}>
-                <span style={{ fg: theme.textMuted }}> · interrupted</span>
-              </Show>
             </text>
           </box>
         </Match>
       </Switch>
     </>
+  )
+}
+
+export function MessageInterrupted(props: { color: RGBA }) {
+  return (
+    <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} paddingLeft={3} marginTop={1} flexShrink={0}>
+      <text fg={props.color}>■ Conversation interrupted</text>
+    </box>
   )
 }
 

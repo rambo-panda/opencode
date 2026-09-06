@@ -27,7 +27,8 @@ describe("tui sync (#26560)", () => {
     }
     const { app, sync } = await mount((url) => {
       if (url.pathname === `/session/${sessionID}`) return json(sessionPayload)
-      if (url.pathname === `/session/${sessionID}/messages`) return json({}, { status: 500 })
+      if (url.pathname === `/api/session/${sessionID}/message`)
+        return json({ _tag: "UnknownError", message: "unavailable" }, { status: 500 })
       if (url.pathname === `/session/${sessionID}/todo`) return json([])
       if (url.pathname === `/session/${sessionID}/diff`) return json([])
       if (url.pathname === "/session") return json([sessionPayload])
@@ -35,7 +36,10 @@ describe("tui sync (#26560)", () => {
     }, tmp.path)
 
     try {
-      await expect(sync.session.sync(sessionID)).resolves.toBeUndefined()
+      await expect(sync.session.sync(sessionID)).rejects.toMatchObject({
+        cause: { body: { _tag: "UnknownError" }, status: 500 },
+      })
+      expect(sync.data.message[sessionID]).toBeUndefined()
     } finally {
       app.renderer.destroy()
     }

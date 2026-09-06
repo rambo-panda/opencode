@@ -8,15 +8,33 @@ import { useSDK } from "../../context/sdk"
 import { SplitBorder } from "../../ui/border"
 import { useTuiConfig } from "../../config"
 import { useBindings, useOpencodeModeStack } from "../../keymap"
+import { useSync } from "../../context/sync"
+import { useToast } from "../../ui/toast"
 
 const QUESTION_MODE = "question"
 
 export function QuestionPrompt(props: { request: QuestionRequest; directory?: string }) {
   const sdk = useSDK()
+  const sync = useSync()
+  const toast = useToast()
   const { theme } = useTheme()
   const renderer = useRenderer()
   const tuiConfig = useTuiConfig()
   const modeStack = useOpencodeModeStack()
+  useBindings(() => ({
+    priority: 1,
+    enabled: sync.session.status(props.request.sessionID) !== "idle",
+    commands: [
+      {
+        name: "session.interrupt",
+        title: "Interrupt session",
+        run: () => {
+          void sync.session.interrupt(props.request.sessionID).catch((error) => toast.error(error))
+        },
+      },
+    ],
+    bindings: tuiConfig.keybinds.get("session.interrupt"),
+  }))
 
   const questions = createMemo(() => props.request.questions)
   const single = createMemo(() => questions().length === 1 && questions()[0]?.multiple !== true)
@@ -47,18 +65,28 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
 
   function submit() {
     const answers = questions().map((_, i) => store.answers[i] ?? [])
-    void sdk.client.question.reply({
-      requestID: props.request.id,
-      directory: props.directory,
-      answers,
-    })
+    void sdk.client.v2.session.question
+      .reply(
+        {
+          sessionID: props.request.sessionID,
+          requestID: props.request.id,
+          questionV2Reply: { answers },
+        },
+        { throwOnError: true },
+      )
+      .catch((error) => toast.error(error))
   }
 
   function reject() {
-    void sdk.client.question.reject({
-      requestID: props.request.id,
-      directory: props.directory,
-    })
+    void sdk.client.v2.session.question
+      .reject(
+        {
+          sessionID: props.request.sessionID,
+          requestID: props.request.id,
+        },
+        { throwOnError: true },
+      )
+      .catch((error) => toast.error(error))
   }
 
   function pick(answer: string, custom: boolean = false) {
@@ -71,11 +99,16 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
       setStore("custom", inputs)
     }
     if (single()) {
-      void sdk.client.question.reply({
-        requestID: props.request.id,
-        directory: props.directory,
-        answers: [[answer]],
-      })
+      void sdk.client.v2.session.question
+        .reply(
+          {
+            sessionID: props.request.sessionID,
+            requestID: props.request.id,
+            questionV2Reply: { answers: [[answer]] },
+          },
+          { throwOnError: true },
+        )
+        .catch((error) => toast.error(error))
       return
     }
     setStore("tab", store.tab + 1)

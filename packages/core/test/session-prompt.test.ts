@@ -1,4 +1,5 @@
 import { describe, expect } from "bun:test"
+import { AgentV2 } from "../src/agent"
 import { DateTime, Effect, Fiber, Layer, Stream } from "effect"
 import { eq } from "drizzle-orm"
 import { Database } from "@opencode-ai/core/database/database"
@@ -28,6 +29,7 @@ const execution = Layer.succeed(
   SessionExecution.Service,
   SessionExecution.Service.of({
     active: Effect.sync(() => new Set(activeSessions)),
+    status: (sessionID) => Effect.succeed({ type: activeSessions.has(sessionID) ? "running" : "idle" }),
     resume: (sessionID) =>
       Effect.sync(() => {
         executionCalls.push(sessionID)
@@ -99,6 +101,46 @@ const eventCount = (type: string) =>
   )
 
 describe("SessionV2.prompt", () => {
+  it.effect("atomically admits selection, reconciles exact retries, and hydrates ordered pending inputs", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const database = yield* Database.Service
+      const events = yield* EventV2.Service
+      const initial = yield* session.get(sessionID)
+      const input = {
+        id: messageID,
+        sessionID,
+        resume: false,
+        prompt: { text: "Selected follow-up", selection: { agent: "plan" } },
+      }
+      const admitted = yield* session.prompt(input)
+      expect(admitted.status).toBe("admitted")
+      expect((yield* session.get(sessionID)).agent).toBe(initial.agent)
+      expect((yield* session.prompt(input)).status).toBe("reconciled")
+      const conflict = yield* session
+        .prompt({ ...input, prompt: { ...input.prompt, selection: { agent: "build" } } })
+        .pipe(Effect.flip)
+      expect(conflict._tag).toBe("Session.PromptConflictError")
+      const queued = yield* session.prompt({
+        sessionID,
+        prompt: { text: "Queued later" },
+        delivery: "queue",
+        resume: false,
+      })
+      const snapshot = yield* session.state(sessionID)
+      expect(snapshot.execution.type).toBe("idle")
+      expect(snapshot.pending.map((item) => [item.id, item.delivery])).toEqual([
+        [admitted.id, "steer"],
+        [queued.id, "queue"],
+      ])
+      expect(snapshot.after).toBeGreaterThanOrEqual(queued.admittedSeq)
+      yield* SessionInput.promoteSteers(database.db, events, sessionID, snapshot.after)
+      expect((yield* session.get(sessionID)).agent).toBe(AgentV2.ID.make("plan"))
+      expect((yield* session.state(sessionID)).pending.map((item) => item.id)).toEqual([queued.id])
+    }),
+  )
+
   it.effect("exposes the execution registry", () =>
     Effect.gen(function* () {
       activeSessions.add(sessionID)
@@ -263,7 +305,8 @@ describe("SessionV2.prompt", () => {
       const first = yield* session.prompt(input)
       const retried = yield* session.prompt(input)
 
-      expect(retried).toEqual(first)
+      expect(first.status).toBe("admitted")
+      expect(retried).toEqual({ ...first, status: "reconciled" })
       expect(yield* session.messages({ sessionID })).toEqual([])
       expect(yield* admittedCount).toBe(1)
     }),
@@ -284,7 +327,7 @@ describe("SessionV2.prompt", () => {
 
       const retried = yield* session.prompt({ ...input, resume: true })
 
-      expect(retried).toEqual(first)
+      expect(retried).toEqual({ ...first, status: "reconciled" })
       expect(wakeCalls).toEqual([sessionID])
     }),
   )
@@ -352,7 +395,8 @@ describe("SessionV2.prompt", () => {
 
       const messages = yield* Effect.all([session.prompt(input), session.prompt(input)], { concurrency: "unbounded" })
 
-      expect(messages[1]).toEqual(messages[0])
+      expect(messages.map((message) => message.status).toSorted()).toEqual(["admitted", "reconciled"])
+      expect(messages[1]).toEqual({ ...messages[0], status: messages[1].status })
       expect(yield* session.messages({ sessionID })).toEqual([])
       expect(yield* admittedCount).toBe(1)
       expect(yield* eventCount(EventV2.versionedType(SessionEvent.PromptAdmitted.type, 1))).toBe(1)

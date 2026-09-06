@@ -8,6 +8,9 @@ import { Pty } from "../src/pty"
 import { Question } from "../src/question"
 import { Session } from "../src/session"
 import { SessionEvent } from "../src/session-event"
+import { SessionInput } from "../src/session-input"
+import { Prompt } from "../src/prompt"
+import { PromptInput } from "../src/prompt-input"
 import { SessionTodo } from "../src/session-todo"
 import { optional } from "../src/schema"
 
@@ -26,6 +29,32 @@ describe("contract hygiene", () => {
       status: "waiting",
       priority: "urgent",
     })
+  })
+
+  test("admission selection omits undefined and participates in exact prompt equivalence", () => {
+    const plain = Prompt.make({ text: "Follow up", selection: undefined })
+    expect(Schema.encodeSync(Prompt)(plain)).toEqual({ text: "Follow up" })
+    const input = Schema.decodeUnknownSync(PromptInput.Prompt)({
+      text: "Follow up",
+      selection: { agent: "build", model: { providerID: "test", id: "test-model" } },
+    })
+    const selected = Prompt.make({ text: input.text, selection: input.selection })
+    expect(Schema.encodeSync(Prompt)(selected)).toEqual({
+      text: "Follow up",
+      selection: { agent: "build", model: { providerID: "test", id: "test-model" } },
+    })
+    expect(Prompt.equivalence(plain, selected)).toBe(false)
+    expect(Prompt.equivalence(selected, Prompt.make(selected))).toBe(true)
+  })
+
+  test("a session with no durable events has a valid empty state cursor", () => {
+    const decode = Schema.decodeUnknownSync(SessionInput.State)
+    expect(decode({ execution: { type: "idle" }, pending: [], after: -1 })).toEqual({
+      execution: { type: "idle" },
+      pending: [],
+      after: -1,
+    })
+    expect(() => decode({ execution: { type: "idle" }, pending: [], after: -2 })).toThrow()
   })
 
   test("current ID constructors expose create", () => {

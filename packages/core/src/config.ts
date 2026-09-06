@@ -145,11 +145,35 @@ const layer = Layer.effect(
     const decodeV1Info = Schema.decodeUnknownOption(ConfigV1.Info, decodeOptions)
 
     const loadFile = Effect.fnUntraced(function* (filepath: string) {
-      const text = yield* fs.readFileStringSafe(filepath)
-      if (!text) return
+      const source = yield* fs.readFileStringSafe(filepath)
+      if (!source) return
+      // Expand before V1 migration too: provider URLs and keys commonly use these placeholders.
+      const text = source.replace(/\{env:([^}]+)\}/g, (_, name) => process.env[name] || "")
+      const parts: string[] = []
+      let cursor = 0
+      for (const match of text.matchAll(/\{file:([^}]+)\}/g)) {
+        parts.push(text.slice(cursor, match.index))
+        cursor = match.index + match[0].length
+        if (
+          text
+            .slice(text.lastIndexOf("\n", match.index - 1) + 1, match.index)
+            .trimStart()
+            .startsWith("//")
+        ) {
+          parts.push(match[0])
+          continue
+        }
+        const filename = match[1]!
+        const resolved = filename.startsWith("~/")
+          ? path.join(global.home, filename.slice(2))
+          : path.resolve(path.dirname(filepath), filename)
+        const content = yield* fs.readFileString(resolved)
+        parts.push(JSON.stringify(content.trim()).slice(1, -1))
+      }
+      parts.push(text.slice(cursor))
 
       const errors: ParseError[] = []
-      const input: unknown = parse(text, errors, { allowTrailingComma: true })
+      const input: unknown = parse(parts.join(""), errors, { allowTrailingComma: true })
       if (errors.length) return
 
       const info = Option.getOrUndefined(

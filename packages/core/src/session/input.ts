@@ -1,8 +1,8 @@
 export * as SessionInput from "./input"
 
-import { and, asc, eq, isNull, lte } from "drizzle-orm"
+import { and, asc, eq, gt, isNull, lte } from "drizzle-orm"
 import { DateTime, Effect, Schema } from "effect"
-import { Admitted, Delivery } from "@opencode-ai/schema/session-input"
+import { Admitted, Delivery, Receipt, State } from "@opencode-ai/schema/session-input"
 import type { Database } from "../database/database"
 import type { EventV2 } from "../event"
 import { SessionEvent } from "./event"
@@ -13,7 +13,7 @@ import { SessionInputTable, SessionMessageTable } from "./sql"
 
 type DatabaseService = Database.Interface["db"]
 
-export { Admitted, Delivery }
+export { Admitted, Delivery, Receipt, State }
 
 const decodePrompt = Schema.decodeUnknownSync(Prompt)
 const encodePrompt = Schema.encodeSync(Prompt)
@@ -34,6 +34,17 @@ export const find = Effect.fn("SessionInput.find")(function* (db: DatabaseServic
   return row === undefined ? undefined : fromRow(row)
 })
 
+export const pending = Effect.fn("SessionInput.pending")(function* (db: DatabaseService, sessionID: SessionSchema.ID) {
+  const rows = yield* db
+    .select()
+    .from(SessionInputTable)
+    .where(and(eq(SessionInputTable.session_id, sessionID), isNull(SessionInputTable.promoted_seq)))
+    .orderBy(asc(SessionInputTable.admitted_seq))
+    .all()
+    .pipe(Effect.orDie)
+  return rows.map(fromRow)
+})
+
 export class LifecycleConflict extends Schema.TaggedErrorClass<LifecycleConflict>()("SessionInput.LifecycleConflict", {
   id: SessionMessage.ID,
 }) {}
@@ -49,7 +60,7 @@ export const admit = Effect.fn("SessionInput.admit")(function* (
   },
 ) {
   const existing = yield* find(db, input.id)
-  if (existing !== undefined) return existing
+  if (existing !== undefined) return Receipt.make({ ...existing, status: "reconciled" })
   const timestamp = yield* DateTime.now
   return yield* events
     .publish(SessionEvent.PromptAdmitted, {
@@ -64,7 +75,8 @@ export const admit = Effect.fn("SessionInput.admit")(function* (
         event.durable === undefined
           ? Effect.die("Prompt admission event is missing aggregate sequence")
           : Effect.succeed(
-              Admitted.make({
+              Receipt.make({
+                status: "admitted",
                 admittedSeq: event.durable.seq,
                 id: input.id,
                 sessionID: input.sessionID,
@@ -75,7 +87,11 @@ export const admit = Effect.fn("SessionInput.admit")(function* (
             ),
       ),
       Effect.catchDefect((defect) =>
-        find(db, input.id).pipe(Effect.flatMap((stored) => (stored ? Effect.succeed(stored) : Effect.die(defect)))),
+        find(db, input.id).pipe(
+          Effect.flatMap((stored) =>
+            stored ? Effect.succeed(Receipt.make({ ...stored, status: "reconciled" })) : Effect.die(defect),
+          ),
+        ),
       ),
     )
 })
@@ -171,6 +187,7 @@ export const hasPending = Effect.fn("SessionInput.hasPending")(function* (
   db: DatabaseService,
   sessionID: SessionSchema.ID,
   delivery: Delivery,
+  after?: number,
 ) {
   const row = yield* db
     .select({ id: SessionInputTable.id })
@@ -180,6 +197,7 @@ export const hasPending = Effect.fn("SessionInput.hasPending")(function* (
         eq(SessionInputTable.session_id, sessionID),
         isNull(SessionInputTable.promoted_seq),
         eq(SessionInputTable.delivery, delivery),
+        after === undefined ? undefined : gt(SessionInputTable.admitted_seq, after),
       ),
     )
     .limit(1)

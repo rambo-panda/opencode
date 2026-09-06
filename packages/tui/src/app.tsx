@@ -304,8 +304,8 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                         >
                                           <PermissionProvider>
                                             <ProjectProvider>
-                                              <SyncProvider>
-                                                <DataProvider>
+                                              <DataProvider>
+                                                <SyncProvider>
                                                   <ThemeProvider mode={mode}>
                                                     <LocalProvider>
                                                       <PromptStashProvider>
@@ -328,8 +328,8 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                                       </PromptStashProvider>
                                                     </LocalProvider>
                                                   </ThemeProvider>
-                                                </DataProvider>
-                                              </SyncProvider>
+                                                </SyncProvider>
+                                              </DataProvider>
                                             </ProjectProvider>
                                           </PermissionProvider>
                                         </SDKProvider>
