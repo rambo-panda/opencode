@@ -89,14 +89,6 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
     if (url.includes("/prompt")) {
       return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(admission)))
     }
-    if (url.includes("/state")) {
-      return Effect.succeed(
-        HttpClientResponse.fromWeb(
-          request,
-          Response.json({ data: { execution: { type: "idle" }, pending: [], after: -1 } }),
-        ),
-      )
-    }
     if (url.includes("/context")) {
       return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({ data: [] })))
     }
@@ -135,7 +127,6 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
       prompt: Prompt.make({ text: "Hello" }),
       resume: false,
     })
-    const state = yield* client.sessions.state({ sessionID: Session.ID.make("ses_test") })
     yield* client.sessions.compact({ sessionID: Session.ID.make("ses_test") })
     yield* client.sessions.wait({ sessionID: Session.ID.make("ses_test") })
     const context = yield* client.sessions.context({ sessionID: Session.ID.make("ses_test") })
@@ -159,7 +150,7 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
       sessionID: Session.ID.make("ses_test"),
       messageID: SessionMessage.ID.make("msg_model"),
     })
-    return { page, active, created, admitted, state, context, history, historyNext, events, message }
+    return { page, active, created, admitted, context, history, historyNext, events, message }
   }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.runPromise)
 
   expect(DateTime.toEpochMillis(result.page.data[0].time.created)).toBe(1_717_171_717_000)
@@ -167,8 +158,6 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
   expect(Object.getPrototypeOf(result.page.data[0])).toBe(Object.prototype)
   expect(Object.getPrototypeOf(result.created)).toBe(Object.prototype)
   expect(result.created.id).toBe("ses_test")
-  expect(result.admitted.status).toBe("reconciled")
-  expect(result.state).toEqual({ execution: { type: "idle" }, pending: [], after: -1 })
   expect(Object.getPrototypeOf(result.admitted)).toBe(Object.prototype)
   expect(Object.getPrototypeOf(result.admitted.prompt)).toBe(Object.prototype)
   expect(DateTime.toEpochMillis(result.admitted.timeCreated)).toBe(1_717_171_717_000)
@@ -228,7 +217,6 @@ const session = {
 
 const admission = {
   data: {
-    status: "reconciled",
     admittedSeq: 0,
     id: "msg_test",
     sessionID: "ses_test",

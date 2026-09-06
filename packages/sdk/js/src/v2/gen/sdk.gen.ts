@@ -377,8 +377,6 @@ import type {
   V2SessionRevertCommitResponses,
   V2SessionRevertStageErrors,
   V2SessionRevertStageResponses,
-  V2SessionStateErrors,
-  V2SessionStateResponses,
   V2SessionSwitchAgentErrors,
   V2SessionSwitchAgentResponses,
   V2SessionSwitchModelErrors,
@@ -5516,25 +5514,6 @@ export class Session3 extends HeyApiClient {
     return (options?.client ?? this.client).get<V2SessionActiveResponses, V2SessionActiveErrors, ThrowOnError>({
       url: "/api/session/active",
       ...options,
-    })
-  }
-
-  /**
-   * Get execution and pending inputs
-   *
-   * Read process-local execution state and durable pending inputs ordered by admission sequence.
-   */
-  public state<ThrowOnError extends boolean = false>(
-    parameters: {
-      sessionID: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
-    return (options?.client ?? this.client).get<V2SessionStateResponses, V2SessionStateErrors, ThrowOnError>({
-      url: "/api/session/{sessionID}/state",
-      ...options,
-      ...params,
     })
   }
 

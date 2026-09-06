@@ -356,17 +356,6 @@ const layer = Layer.effectDiscard(
           timeCreated: event.data.timestamp,
           promotedSeq: event.durable.seq,
         })
-        if (event.data.prompt.selection?.agent !== undefined || event.data.prompt.selection?.model !== undefined) {
-          yield* db
-            .update(SessionTable)
-            .set({
-              agent: event.data.prompt.selection.agent,
-              model: event.data.prompt.selection.model,
-            })
-            .where(eq(SessionTable.id, event.data.sessionID))
-            .run()
-            .pipe(Effect.orDie)
-        }
         yield* run(db, event)
       }),
     )

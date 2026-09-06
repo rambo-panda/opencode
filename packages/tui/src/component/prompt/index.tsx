@@ -15,7 +15,6 @@ import path from "path"
 import { fileURLToPath } from "url"
 import { useLocal } from "../../context/local"
 import { Flag } from "@opencode-ai/core/flag/flag"
-import { Identifier } from "@opencode-ai/core/id/id"
 import { tint, useTheme } from "../../context/theme"
 import { EmptyBorder, SplitBorder } from "../../ui/border"
 import { useTuiPaths, useTuiTerminalEnvironment } from "../../context/runtime"
@@ -58,7 +57,6 @@ import { usePromptWorkspace } from "./workspace"
 import { usePromptMove } from "./move"
 import { readLocalAttachment } from "./local-attachment"
 import { useLocation } from "../../context/location"
-import { canQueuePrompt, createPromptSubmission, type SubmissionSnapshot, type SubmissionState } from "./submission"
 
 registerOpencodeSpinner()
 
@@ -141,7 +139,6 @@ function formatEditorContext(selection: EditorSelection) {
 }
 
 let stashed: { prompt: PromptInfo; cursor: number } | undefined
-const pendingSubmissions = new Map<string | undefined, SubmissionSnapshot>()
 
 export function Prompt(props: PromptProps) {
   let input: TextareaRenderable
@@ -168,8 +165,6 @@ export function Prompt(props: PromptProps) {
   const stash = usePromptStash()
   const keymap = useOpencodeKeymap()
   const agentShortcut = useCommandShortcut("agent.cycle")
-  const queueShortcut = useCommandShortcut("prompt.queue")
-  const interruptShortcut = useCommandShortcut("session.interrupt")
   const paletteShortcut = useCommandShortcut("command.palette.show")
   const renderer = useRenderer()
   const exit = useExit()
@@ -215,43 +210,6 @@ export function Prompt(props: PromptProps) {
   const workspace = usePromptWorkspace(props.sessionID)
   const move = usePromptMove({ projectID: project.project, sessionID: () => props.sessionID })
   const [cursorVersion, setCursorVersion] = createSignal(0)
-  const [submissionState, setSubmissionState] = createSignal<SubmissionState>({ type: "idle" })
-  const submission = createMemo(() => {
-    const sessionID = props.sessionID
-    let last = pendingSubmissions.get(sessionID)
-    const controller = createPromptSubmission({
-      uncertain: last,
-      changed(state) {
-        if (props.sessionID === sessionID) setSubmissionState(state)
-        if (state.type === "idle" || state.type === "error") {
-          if (pendingSubmissions.get(sessionID)?.id === last?.id) pendingSubmissions.delete(sessionID)
-          return
-        }
-        last = state.snapshot
-        pendingSubmissions.set(sessionID, state.snapshot)
-      },
-      async send(snapshot) {
-        if (snapshot.create)
-          await sdk.client.v2.session.create(
-            {
-              id: snapshot.sessionID,
-              location: snapshot.location,
-              agent: snapshot.prompt.selection?.agent,
-              model: snapshot.prompt.selection?.model,
-            },
-            { throwOnError: true },
-          )
-        const response = await sdk.client.v2.session.prompt(
-          { sessionID: snapshot.sessionID, id: snapshot.id, prompt: snapshot.prompt, delivery: snapshot.delivery },
-          { throwOnError: true },
-        )
-        void sync.session.state(snapshot.sessionID).catch(() => {})
-        return response.data.data
-      },
-    })
-    setSubmissionState(controller.state)
-    return controller
-  })
   const currentProviderLabel = createMemo(() => local.model.parsed().provider)
   const hasRightContent = createMemo(() => Boolean(props.right))
 
@@ -327,6 +285,7 @@ export function Prompt(props: PromptProps) {
     prompt: PromptInfo
     mode: "normal" | "shell"
     extmarkToPartIndex: Map<number, number>
+    interrupt: number
     placeholder: number
   }>({
     placeholder: randomIndex(list().length),
@@ -336,17 +295,8 @@ export function Prompt(props: PromptProps) {
     },
     mode: "normal",
     extmarkToPartIndex: new Map(),
+    interrupt: 0,
   })
-  const queueEnabled = () => {
-    // Keep the footer reactive, but dispatch against the textarea before Solid flushes a terminal key batch.
-    const draft = store.prompt.input
-    return canQueuePrompt({
-      status: status().type,
-      text: inputTarget()?.plainText ?? draft,
-      autocomplete: Boolean(auto()?.visible),
-      mode: store.mode,
-    })
-  }
 
   createEffect(
     on(
@@ -408,17 +358,6 @@ export function Prompt(props: PromptProps) {
         },
       },
       {
-        title: "Queue follow-up prompt",
-        name: "prompt.queue",
-        category: "Prompt",
-        hidden: true,
-        enabled: queueEnabled,
-        run: async () => {
-          if (!input.focused || !queueEnabled()) return false
-          if (await submit("queue")) dialog.clear()
-        },
-      },
-      {
         title: "Remove editor context",
         name: "prompt.editor_context.clear",
         category: "Prompt",
@@ -457,8 +396,27 @@ export function Prompt(props: PromptProps) {
         hidden: true,
         enabled: status().type !== "idle",
         run: () => {
+          if (auto()?.visible) return
+          if (!input.focused) return
+          // TODO: this should be its own command
+          if (store.mode === "shell") {
+            setStore("mode", "normal")
+            return
+          }
           if (!props.sessionID) return
-          void sync.session.interrupt(props.sessionID).catch((error) => toast.error(error))
+
+          setStore("interrupt", store.interrupt + 1)
+
+          setTimeout(() => {
+            setStore("interrupt", 0)
+          }, 5000)
+
+          if (store.interrupt >= 2) {
+            void sdk.client.session.abort({
+              sessionID: props.sessionID,
+            })
+            setStore("interrupt", 0)
+          }
           dialog.clear()
         },
       },
@@ -615,21 +573,10 @@ export function Prompt(props: PromptProps) {
       "prompt.stash.pop",
       "prompt.stash.list",
       "prompt.skills",
+      "session.interrupt",
       "workspace.set",
       "session.move",
     ]),
-  }))
-
-  useBindings(() => ({
-    target: inputTarget,
-    enabled: () => inputTarget() !== undefined && !props.disabled && queueEnabled(),
-    bindings: tuiConfig.keybinds.get("prompt.queue"),
-  }))
-
-  useBindings(() => ({
-    target: inputTarget,
-    enabled: inputTarget() !== undefined && status().type !== "idle",
-    bindings: tuiConfig.keybinds.get("session.interrupt"),
   }))
 
   const ref: PromptRef = {
@@ -666,9 +613,7 @@ export function Prompt(props: PromptProps) {
   }
 
   onMount(() => {
-    const current = submission().state
-    const lastSubmission = current.type === "uncertain" ? current.snapshot : undefined
-    const saved = lastSubmission ? { prompt: lastSubmission.draft, cursor: lastSubmission.draft.input.length } : stashed
+    const saved = stashed
     stashed = undefined
     if (store.prompt.input) return
     if (saved && saved.prompt.input) {
@@ -681,10 +626,7 @@ export function Prompt(props: PromptProps) {
 
   onCleanup(() => {
     if (store.prompt.input) {
-      stashed = {
-        prompt: unwrap(store.prompt),
-        cursor: input.cursorOffset,
-      }
+      stashed = { prompt: unwrap(store.prompt), cursor: input.cursorOffset }
     }
     setInputTarget(undefined)
     props.ref?.(undefined)
@@ -866,7 +808,7 @@ export function Prompt(props: PromptProps) {
   useBindings(() => {
     return {
       target: inputTarget,
-      enabled: inputTarget() !== undefined && !props.disabled && status().type === "idle" && store.prompt.input !== "",
+      enabled: inputTarget() !== undefined && !props.disabled && store.prompt.input !== "",
       bindings: tuiConfig.keybinds.get("prompt.clear"),
     }
   })
@@ -986,34 +928,23 @@ export function Prompt(props: PromptProps) {
   })
 
   let submitting = false
-  async function submit(delivery: "steer" | "queue" = "steer") {
-    // Native submit and a command dispatch can arrive before session creation settles.
+  async function submit() {
+    // Prevent overlapping invocations (e.g. a double-pressed Enter, or the
+    // input's native onSubmit racing another dispatch). Without this guard,
+    // a second call slips past the empty-input check before the first call
+    // clears `store.prompt.input`, then awaits its own `session.create` and
+    // ultimately reads the now-empty store — sending a phantom empty prompt
+    // to a freshly created session.
     if (submitting) return false
     submitting = true
-    const controller = submission()
     try {
-      const current = controller.state
-      if (current.type === "uncertain") {
-        const admitted = await controller.submit(() => current.snapshot)
-        return admitted ? finishSubmission(admitted) : false
-      }
-      return await submitInner(delivery, controller)
-    } catch (error) {
-      toast.show({
-        title:
-          controller.state.type === "uncertain"
-            ? "Submission not confirmed — submit again to retry"
-            : "Failed to send prompt",
-        message: errorMessage(error),
-        variant: "error",
-      })
-      return false
+      return await submitInner()
     } finally {
       submitting = false
     }
   }
 
-  async function submitInner(delivery: "steer" | "queue", controller: ReturnType<typeof submission>) {
+  async function submitInner() {
     workspace.clearNotice()
 
     // IME: double-defer may fire before onContentChange flushes the last
@@ -1027,17 +958,6 @@ export function Prompt(props: PromptProps) {
     if (workspace.creating() || move.creating()) return false
     if (auto()?.visible) return false
     if (!store.prompt.input) return false
-    if (
-      store.mode === "shell" ||
-      (store.prompt.input.startsWith("/") &&
-        sync.data.command.some((command) => command.name === store.prompt.input.split(/\s/, 1)[0].slice(1)))
-    ) {
-      toast.show({
-        message: "Shell and remote slash commands are not available in this session yet",
-        variant: "warning",
-      })
-      return false
-    }
     const agent = local.agent.current()
     if (!agent) return false
     const trimmed = store.prompt.input.trim()
@@ -1066,6 +986,43 @@ export function Prompt(props: PromptProps) {
       return false
     }
 
+    const variant = local.model.variant.current()
+    let sessionID = props.sessionID
+    let finishMoveProgress = false
+    if (sessionID == null) {
+      const selectedWorkspace = workspace.selection()
+      const workspaceID = selectedWorkspace?.type === "existing" ? selectedWorkspace.workspaceID : undefined
+
+      const directory = await move.getDirectory(store.prompt.input)
+      if (move.pending() && !directory) return false
+      finishMoveProgress = Boolean(move.progress())
+
+      const res = await sdk.client.session.create({
+        directory,
+        workspace: workspaceID,
+        agent: agent.name,
+        model: {
+          providerID: selectedModel.providerID,
+          id: selectedModel.modelID,
+          variant,
+        },
+      })
+
+      if (res.error) {
+        if (finishMoveProgress) move.finishSubmit()
+        console.log("Creating a session failed:", res.error)
+
+        toast.show({
+          message: "Creating a session failed. Open console for more details.",
+          variant: "error",
+        })
+
+        return true
+      }
+
+      sessionID = res.data.id
+    }
+
     const inputText = expandTrackedPastedText(
       store.prompt.input,
       input.extmarks.getAllForTypeId(promptPartTypeId).flatMap((extmark) => {
@@ -1076,90 +1033,116 @@ export function Prompt(props: PromptProps) {
       }),
     )
 
-    const editorSelection = editorContext()
-    const selectedWorkspace = workspace.selection()
-    const captured: SubmissionSnapshot = structuredClone({
-      id: Identifier.ascending("message"),
-      sessionID: props.sessionID ?? Identifier.descending("session"),
-      delivery,
-      draft: { ...unwrap(store.prompt), mode: store.mode },
-      editor: Boolean(editorSelection && editor.labelState() === "pending"),
-      create: !props.sessionID,
-      location: {
-        directory: location()?.directory ?? project.instance.directory() ?? sdk.directory,
-        workspaceID: selectedWorkspace?.type === "existing" ? selectedWorkspace.workspaceID : undefined,
-      },
-      prompt: {
-        text:
-          inputText +
-          (editorSelection && editor.labelState() === "pending" ? "\n\n" + formatEditorContext(editorSelection) : ""),
-        selection: {
-          agent: agent.name,
-          model: {
-            id: selectedModel.modelID,
-            providerID: selectedModel.providerID,
-            variant: local.model.variant.current(),
-          },
-        },
-        files: store.prompt.parts.flatMap((part) =>
-          part.type === "file"
-            ? [
-                {
-                  uri: part.url,
-                  name: part.filename,
-                  source: part.source?.text
-                    ? { start: part.source.text.start, end: part.source.text.end, text: part.source.text.value }
-                    : undefined,
-                },
-              ]
-            : [],
-        ),
-        agents: store.prompt.parts.flatMap((part) =>
-          part.type === "agent"
-            ? [
-                {
-                  name: part.name,
-                  source: part.source
-                    ? { start: part.source.start, end: part.source.end, text: part.source.value }
-                    : undefined,
-                },
-              ]
-            : [],
-        ),
-      },
-    })
-    const directory = captured.create ? await move.getDirectory(captured.draft.input) : undefined
-    if (move.pending() && !directory) return false
-    move.startSubmit()
-    const admitted = await controller.submit(() => ({
-      ...captured,
-      location: directory ? { ...captured.location, directory } : captured.location,
-    }))
-    if (!admitted) return false
-    return finishSubmission(admitted)
-  }
+    // Filter out text parts (pasted content) since they're now expanded inline
+    const nonTextParts = store.prompt.parts.filter((part) => part.type !== "text")
 
-  function finishSubmission(admitted: SubmissionSnapshot) {
-    history.append(admitted.draft)
-    if (props.sessionID !== (admitted.create ? undefined : admitted.sessionID)) return true
-    if (admitted.editor) editor.markSelectionSent()
-    // Preserve edits made while admission was in flight.
-    if (
-      !input.isDestroyed &&
-      store.prompt.input === admitted.draft.input &&
-      JSON.stringify(unwrap(store.prompt.parts)) === JSON.stringify(admitted.draft.parts)
+    // Capture mode before it gets reset
+    const currentMode = store.mode
+    const editorSelection = editorContext()
+    const editorParts =
+      editorSelection && editor.labelState() === "pending"
+        ? [
+            {
+              type: "text" as const,
+              text: formatEditorContext(editorSelection),
+              synthetic: true,
+              metadata: {
+                kind: "editor_context",
+                source: editorSelection.source ?? "editor",
+                filePath: editorSelection.filePath,
+                ranges: editorSelection.ranges,
+              },
+            },
+          ]
+        : []
+
+    if (store.mode === "shell") {
+      move.startSubmit()
+      void sdk.client.session.shell({
+        sessionID,
+        agent: agent.name,
+        model: {
+          providerID: selectedModel.providerID,
+          modelID: selectedModel.modelID,
+        },
+        command: inputText,
+      })
+      setStore("mode", "normal")
+    } else if (
+      inputText.startsWith("/") &&
+      sync.data.command.some((x) => x.name === inputText.split("\n")[0].split(" ")[0].slice(1))
     ) {
-      input.extmarks.clear()
-      input.clear()
-      setStore("prompt", { input: "", parts: [] })
-      setStore("extmarkToPartIndex", new Map())
+      move.startSubmit()
+      // Parse command from first line, preserve multi-line content in arguments
+      const firstLineEnd = inputText.indexOf("\n")
+      const firstLine = firstLineEnd === -1 ? inputText : inputText.slice(0, firstLineEnd)
+      const [command, ...firstLineArgs] = firstLine.split(" ")
+      const restOfInput = firstLineEnd === -1 ? "" : inputText.slice(firstLineEnd + 1)
+      const args = firstLineArgs.join(" ") + (restOfInput ? "\n" + restOfInput : "")
+
+      void sdk.client.session.command({
+        sessionID,
+        command: command.slice(1),
+        arguments: args,
+        agent: agent.name,
+        model: `${selectedModel.providerID}/${selectedModel.modelID}`,
+        variant,
+        parts: nonTextParts.filter((x) => x.type === "file"),
+      })
+    } else {
+      move.startSubmit()
+      sdk.client.session
+        .prompt(
+          {
+            sessionID,
+            ...selectedModel,
+            agent: agent.name,
+            model: selectedModel,
+            variant,
+            parts: [
+              ...editorParts,
+              {
+                type: "text",
+                text: inputText,
+              },
+              ...nonTextParts,
+            ],
+          },
+          { throwOnError: true },
+        )
+        .catch((error) => {
+          toast.show({
+            title: "Failed to send prompt",
+            message: errorMessage(error),
+            variant: "error",
+          })
+        })
+      if (editorParts.length > 0) editor.markSelectionSent()
     }
+    history.append({
+      ...store.prompt,
+      mode: currentMode,
+    })
+    input.extmarks.clear()
+    setStore("prompt", {
+      input: "",
+      parts: [],
+    })
+    setStore("extmarkToPartIndex", new Map())
     props.onSubmit?.()
-    if (admitted.create) {
-      if (admitted.editor) editor.preserveSelectionFromNewSession()
-      route.navigate({ type: "session", sessionID: admitted.sessionID })
+
+    // temporary hack to make sure the message is sent
+    if (!props.sessionID) {
+      if (editorParts.length > 0) editor.preserveSelectionFromNewSession()
+      setTimeout(() => {
+        route.navigate({
+          type: "session",
+          sessionID,
+        })
+      }, 50)
     }
-    if (move.progress()) move.finishSubmit()
+    input.clear()
+    if (finishMoveProgress) move.finishSubmit()
     return true
   }
 
@@ -1601,14 +1584,12 @@ export function Prompt(props: PromptProps) {
                     })()}
                   </box>
                 </box>
-                <text fg={theme.text}>
-                  {status().type === "stopping"
-                    ? "Stopping · follow-ups will continue"
-                    : `${interruptShortcut()} interrupt`}
+                <text fg={store.interrupt > 0 ? theme.primary : theme.text}>
+                  esc{" "}
+                  <span style={{ fg: store.interrupt > 0 ? theme.primary : theme.textMuted }}>
+                    {store.interrupt > 0 ? "again to interrupt" : "interrupt"}
+                  </span>
                 </text>
-                <Show when={queueEnabled()}>
-                  <text fg={theme.textMuted}>{queueShortcut()} queue</text>
-                </Show>
               </box>
             </Match>
             <Match when={workspace.notice()}>
@@ -1707,13 +1688,6 @@ export function Prompt(props: PromptProps) {
             </box>
           </Show>
         </box>
-        <Show when={submissionState().type === "admitting" || submissionState().type === "uncertain"}>
-          <text fg={theme.textMuted}>
-            {submissionState().type === "admitting"
-              ? "Submitting…"
-              : "Submission not confirmed · submit again to retry the same message"}
-          </text>
-        </Show>
       </box>
       <Autocomplete
         sessionID={props.sessionID}

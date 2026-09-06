@@ -7,7 +7,6 @@ import type { ContextSnapshotDecodeError, MessageDecodeError } from "../error"
 import { SessionRunnerModel } from "./model"
 import type { SystemContext } from "../../system-context/index"
 import type { ToolOutputStore } from "../../tool-output-store"
-import type { SessionRunCoordinator } from "../run-coordinator"
 
 export type RunError =
   | LLMError
@@ -23,7 +22,6 @@ export interface Interface {
   readonly run: (input: {
     readonly sessionID: SessionSchema.ID
     readonly force: boolean
-    readonly continuation?: SessionRunCoordinator.Continuation
   }) => Effect.Effect<void, RunError>
 }
 

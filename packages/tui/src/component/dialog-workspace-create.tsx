@@ -45,6 +45,10 @@ export function recentConnectedWorkspaces<WorkspaceInfo extends { id: string; ti
   return { recent, hasMore: recent.length < workspaces.length }
 }
 
+export function warpReminderText(dir: string) {
+  return `<system-reminder>The user has changed the current working directory to "${dir}". This is still the same project but at a possibly new location; take this into account when working with any files from now on.</system-reminder>`
+}
+
 async function loadWorkspaceAdapters(input: {
   sdk: ReturnType<typeof useSDK>
   sync: ReturnType<typeof useSync>
@@ -93,16 +97,6 @@ export async function warpWorkspaceSession(input: {
   copyChanges: boolean
   done?: () => void
 }): Promise<boolean> {
-  if (
-    input.sync.session.status(input.sessionID) !== "idle" ||
-    input.sync.data.session_pending[input.sessionID]?.length
-  ) {
-    input.toast.show({
-      variant: "warning",
-      message: "Wait for admitted follow-ups to finish before moving this session",
-    })
-    return false
-  }
   let result
   try {
     result = await input.sdk.client.experimental.workspace.warp({
@@ -140,11 +134,25 @@ export async function warpWorkspaceSession(input: {
 
   await input.sync.bootstrap({ fatal: false }).catch(() => undefined)
 
-  await Promise.all([
-    input.project.workspace.sync(),
-    input.sync.session.refresh(),
-    input.sync.session.sync(input.sessionID, true),
-  ])
+  const dir = input.project.instance.directory() || input.sync.path.directory
+  if (dir) {
+    await input.sdk.client.session
+      .promptAsync({
+        sessionID: input.sessionID,
+        workspace: input.workspaceID ?? undefined,
+        noReply: true,
+        parts: [
+          {
+            type: "text",
+            text: warpReminderText(dir),
+            synthetic: true,
+          },
+        ],
+      })
+      .catch(() => undefined)
+  }
+
+  await Promise.all([input.project.workspace.sync(), input.sync.session.refresh()])
 
   if (input.done) {
     input.done()

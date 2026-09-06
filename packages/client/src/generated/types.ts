@@ -329,41 +329,6 @@ export type SessionsCreateOutput = {
 
 export type SessionsActiveOutput = { readonly data: { readonly [x: string]: { readonly type: "running" } } }["data"]
 
-export type SessionsStateInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
-
-export type SessionsStateOutput = {
-  readonly data: {
-    readonly execution: { readonly type: "idle" | "running" | "stopping" }
-    readonly pending: ReadonlyArray<{
-      readonly admittedSeq: number
-      readonly id: string
-      readonly sessionID: string
-      readonly prompt: {
-        readonly text: string
-        readonly selection?: {
-          readonly agent?: string
-          readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
-        }
-        readonly files?: ReadonlyArray<{
-          readonly uri: string
-          readonly mime: string
-          readonly name?: string
-          readonly description?: string
-          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
-        }>
-        readonly agents?: ReadonlyArray<{
-          readonly name: string
-          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
-        }>
-      }
-      readonly delivery: "steer" | "queue"
-      readonly timeCreated: number
-      readonly promotedSeq?: number
-    }>
-    readonly after: number
-  }
-}["data"]
-
 export type SessionsGetInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
 
 export type SessionsGetOutput = {
@@ -422,10 +387,6 @@ export type SessionsPromptInput = {
     readonly id?: string | null
     readonly prompt: {
       readonly text: string
-      readonly selection?: {
-        readonly agent?: string
-        readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
-      }
       readonly files?: ReadonlyArray<{
         readonly uri: string
         readonly name?: string
@@ -444,10 +405,6 @@ export type SessionsPromptInput = {
     readonly id?: string | null
     readonly prompt: {
       readonly text: string
-      readonly selection?: {
-        readonly agent?: string
-        readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
-      }
       readonly files?: ReadonlyArray<{
         readonly uri: string
         readonly name?: string
@@ -466,10 +423,6 @@ export type SessionsPromptInput = {
     readonly id?: string | null
     readonly prompt: {
       readonly text: string
-      readonly selection?: {
-        readonly agent?: string
-        readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
-      }
       readonly files?: ReadonlyArray<{
         readonly uri: string
         readonly name?: string
@@ -488,10 +441,6 @@ export type SessionsPromptInput = {
     readonly id?: string | null
     readonly prompt: {
       readonly text: string
-      readonly selection?: {
-        readonly agent?: string
-        readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
-      }
       readonly files?: ReadonlyArray<{
         readonly uri: string
         readonly name?: string
@@ -515,10 +464,6 @@ export type SessionsPromptOutput = {
     readonly sessionID: string
     readonly prompt: {
       readonly text: string
-      readonly selection?: {
-        readonly agent?: string
-        readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
-      }
       readonly files?: ReadonlyArray<{
         readonly uri: string
         readonly mime: string
@@ -534,7 +479,6 @@ export type SessionsPromptOutput = {
     readonly delivery: "steer" | "queue"
     readonly timeCreated: number
     readonly promotedSeq?: number
-    readonly status: "admitted" | "reconciled"
   }
 }["data"]
 
@@ -791,10 +735,6 @@ export type SessionsHistoryOutput = {
           readonly messageID: string
           readonly prompt: {
             readonly text: string
-            readonly selection?: {
-              readonly agent?: string
-              readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
-            }
             readonly files?: ReadonlyArray<{
               readonly uri: string
               readonly mime: string
@@ -822,10 +762,6 @@ export type SessionsHistoryOutput = {
           readonly messageID: string
           readonly prompt: {
             readonly text: string
-            readonly selection?: {
-              readonly agent?: string
-              readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
-            }
             readonly files?: ReadonlyArray<{
               readonly uri: string
               readonly mime: string
@@ -1257,10 +1193,6 @@ export type SessionsEventsOutput =
         readonly messageID: string
         readonly prompt: {
           readonly text: string
-          readonly selection?: {
-            readonly agent?: string
-            readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
-          }
           readonly files?: ReadonlyArray<{
             readonly uri: string
             readonly mime: string
@@ -1288,10 +1220,6 @@ export type SessionsEventsOutput =
         readonly messageID: string
         readonly prompt: {
           readonly text: string
-          readonly selection?: {
-            readonly agent?: string
-            readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
-          }
           readonly files?: ReadonlyArray<{
             readonly uri: string
             readonly mime: string

@@ -21,21 +21,3 @@ export const Admitted = Schema.Struct({
   timeCreated: DateTimeUtcFromMillis,
   promotedSeq: NonNegativeInt.pipe(optional),
 }).annotate({ identifier: "SessionInput.Admitted" })
-
-export const Receipt = Schema.Struct({
-  ...Admitted.fields,
-  status: Schema.Literals(["admitted", "reconciled"]),
-}).annotate({ identifier: "SessionInput.Receipt" })
-export interface Receipt extends Schema.Schema.Type<typeof Receipt> {}
-
-export const Execution = Schema.Struct({
-  type: Schema.Literals(["idle", "running", "stopping"]),
-}).annotate({ identifier: "SessionExecution" })
-export interface Execution extends Schema.Schema.Type<typeof Execution> {}
-
-export const State = Schema.Struct({
-  execution: Execution,
-  pending: Schema.Array(Admitted),
-  after: Schema.Int.check(Schema.isGreaterThanOrEqualTo(-1)),
-}).annotate({ identifier: "SessionInput.State" })
-export interface State extends Schema.Schema.Type<typeof State> {}

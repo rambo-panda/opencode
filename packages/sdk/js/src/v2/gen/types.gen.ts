@@ -16,7 +16,6 @@ export type Event =
   | EventMessageRemoved
   | EventMessagePartUpdated
   | EventMessagePartRemoved
-  | EventSessionNextExecutionChanged
   | EventSessionNextAgentSwitched
   | EventSessionNextModelSwitched
   | EventSessionNextMoved
@@ -639,13 +638,8 @@ export type Part =
   | RetryPart
   | CompactionPart
 
-export type SessionExecution = {
-  type: "idle" | "running" | "stopping"
-}
-
 export type Prompt = {
   text: string
-  selection?: PromptSelection
   files?: Array<PromptFileAttachment>
   agents?: Array<PromptAgentAttachment>
 }
@@ -822,14 +816,6 @@ export type GlobalEvent = {
           sessionID: string
           messageID: string
           partID: string
-        }
-      }
-    | {
-        id: string
-        type: "session.next.execution.changed"
-        properties: {
-          sessionID: string
-          status: SessionExecution
         }
       }
     | {
@@ -2724,7 +2710,6 @@ export type SessionNotFoundError = {
 
 export type PromptInput = {
   text: string
-  selection?: PromptSelection
   files?: Array<PromptInputFileAttachment>
   agents?: Array<PromptAgentAttachment>
 }
@@ -2882,7 +2867,6 @@ export type V2Event =
   | MessageRemoved
   | MessagePartUpdated
   | MessagePartRemoved
-  | SessionNextExecutionChanged
   | SessionNextAgentSwitched
   | SessionNextModelSwitched
   | SessionNextMoved
@@ -3063,11 +3047,6 @@ export type ModelRef = {
 export type LocationRef = {
   directory: string
   workspaceID?: string
-}
-
-export type PromptSelection = {
-  agent?: string
-  model?: ModelRef
 }
 
 export type PromptSource = {
@@ -3953,6 +3932,13 @@ export type SessionV2Info = {
   revert?: RevertState
 }
 
+export type PromptInputFileAttachment = {
+  uri: string
+  name?: string
+  description?: string
+  source?: PromptSource
+}
+
 export type SessionInputAdmitted = {
   admittedSeq: number
   id: string
@@ -3961,30 +3947,6 @@ export type SessionInputAdmitted = {
   delivery: "steer" | "queue"
   timeCreated: number
   promotedSeq?: number
-}
-
-export type SessionInputState = {
-  execution: SessionExecution
-  pending: Array<SessionInputAdmitted>
-  after: number
-}
-
-export type PromptInputFileAttachment = {
-  uri: string
-  name?: string
-  description?: string
-  source?: PromptSource
-}
-
-export type SessionInputReceipt = {
-  admittedSeq: number
-  id: string
-  sessionID: string
-  prompt: Prompt
-  delivery: "steer" | "queue"
-  timeCreated: number
-  promotedSeq?: number
-  status: "admitted" | "reconciled"
 }
 
 export type SessionMessageAgentSwitched = {
@@ -5258,24 +5220,6 @@ export type MessagePartRemoved = {
   }
 }
 
-export type SessionNextExecutionChanged = {
-  id: string
-  metadata?: {
-    [key: string]: unknown
-  }
-  type: "session.next.execution.changed"
-  durable?: {
-    aggregateID: string
-    seq: number
-    version: number
-  }
-  location?: LocationRef
-  data: {
-    sessionID: string
-    status: SessionExecution
-  }
-}
-
 export type SessionNextTextDelta = {
   id: string
   metadata?: {
@@ -6304,15 +6248,6 @@ export type EventMessagePartRemoved = {
     sessionID: string
     messageID: string
     partID: string
-  }
-}
-
-export type EventSessionNextExecutionChanged = {
-  id: string
-  type: "session.next.execution.changed"
-  properties: {
-    sessionID: string
-    status: SessionExecution
   }
 }
 
@@ -11507,43 +11442,6 @@ export type V2SessionActiveResponses = {
 
 export type V2SessionActiveResponse = V2SessionActiveResponses[keyof V2SessionActiveResponses]
 
-export type V2SessionStateData = {
-  body?: never
-  path: {
-    sessionID: string
-  }
-  query?: never
-  url: "/api/session/{sessionID}/state"
-}
-
-export type V2SessionStateErrors = {
-  /**
-   * InvalidRequestError
-   */
-  400: InvalidRequestError
-  /**
-   * UnauthorizedError
-   */
-  401: UnauthorizedError
-  /**
-   * SessionNotFoundError
-   */
-  404: SessionNotFoundError
-}
-
-export type V2SessionStateError = V2SessionStateErrors[keyof V2SessionStateErrors]
-
-export type V2SessionStateResponses = {
-  /**
-   * Success
-   */
-  200: {
-    data: SessionInputState
-  }
-}
-
-export type V2SessionStateResponse = V2SessionStateResponses[keyof V2SessionStateResponses]
-
 export type V2SessionGetData = {
   body?: never
   path: {
@@ -11695,7 +11593,7 @@ export type V2SessionPromptResponses = {
    * Success
    */
   200: {
-    data: SessionInputReceipt
+    data: SessionInputAdmitted
   }
 }
 

@@ -103,8 +103,6 @@ test("session methods use the public HTTP contract", async () => {
         )
       }
       if (url.includes("/prompt")) return Response.json(admission)
-      if (url.includes("/state"))
-        return Response.json({ data: { execution: { type: "stopping" }, pending: [admission.data], after: 0 } })
       if (url.includes("/context")) return Response.json({ data: [] })
       if (url.includes("/message/")) return Response.json({ data: modelSwitchedMessage })
       if (url.endsWith("/api/session/active")) return Response.json({ data: { ses_test: { type: "running" } } })
@@ -123,13 +121,10 @@ test("session methods use the public HTTP contract", async () => {
     model: { id: "claude", providerID: "anthropic" },
   })
   const admitted = await client.sessions.prompt({
-    id: "msg_test",
     sessionID: "ses_test",
-    prompt: { text: "Hello", selection: { agent: "build", model: { providerID: "anthropic", id: "claude" } } },
-    delivery: "queue",
+    prompt: { text: "Hello" },
     resume: false,
   })
-  const state = await client.sessions.state({ sessionID: "ses_test" })
   await client.sessions.compact({ sessionID: "ses_test" })
   await client.sessions.wait({ sessionID: "ses_test" })
   const context = await client.sessions.context({ sessionID: "ses_test" })
@@ -147,8 +142,6 @@ test("session methods use the public HTTP contract", async () => {
   expect(active).toEqual({ ses_test: { type: "running" } })
   expect(created.id).toBe("ses_test")
   expect(admitted.id).toBe("msg_test")
-  expect(admitted.status).toBe("admitted")
-  expect(state).toEqual({ execution: { type: "stopping" }, pending: [admission.data], after: 0 })
   expect(context).toEqual([])
   expect(history).toEqual({ data: [modelSwitchedEvent], hasMore: true })
   expect(historyNext).toEqual({ data: [], hasMore: false })
@@ -161,7 +154,6 @@ test("session methods use the public HTTP contract", async () => {
     ["POST", "http://localhost:3000/api/session/ses_test/agent"],
     ["POST", "http://localhost:3000/api/session/ses_test/model"],
     ["POST", "http://localhost:3000/api/session/ses_test/prompt"],
-    ["GET", "http://localhost:3000/api/session/ses_test/state"],
     ["POST", "http://localhost:3000/api/session/ses_test/compact"],
     ["POST", "http://localhost:3000/api/session/ses_test/wait"],
     ["GET", "http://localhost:3000/api/session/ses_test/context"],
@@ -174,9 +166,7 @@ test("session methods use the public HTTP contract", async () => {
   const body = requests.find((request) => request.url.endsWith("/api/session/ses_test/prompt"))?.init?.body
   if (typeof body !== "string") throw new Error("Expected JSON request body")
   expect(JSON.parse(body)).toEqual({
-    id: "msg_test",
-    prompt: { text: "Hello", selection: { agent: "build", model: { providerID: "anthropic", id: "claude" } } },
-    delivery: "queue",
+    prompt: { text: "Hello" },
     resume: false,
   })
 })
@@ -236,12 +226,11 @@ const session = {
 
 const admission = {
   data: {
-    status: "admitted",
     admittedSeq: 0,
     id: "msg_test",
     sessionID: "ses_test",
     prompt: { text: "Hello" },
-    delivery: "queue",
+    delivery: "steer",
     timeCreated: 1_717_171_717_000,
   },
 }

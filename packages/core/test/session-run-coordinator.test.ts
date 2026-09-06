@@ -215,20 +215,17 @@ describe("SessionRunCoordinator", () => {
     ),
   )
 
-  it.effect("interrupts active execution and preserves its pending wake", () =>
+  it.effect("interrupts active execution and clears its pending wake", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const started = yield* Deferred.make<void>()
         const interrupted = yield* Deferred.make<void>()
-        const continued = yield* Deferred.make<void>()
         let runs = 0
         const coordinator = yield* SessionRunCoordinator.make({
           drain: () =>
             Effect.sync(() => ++runs).pipe(
               Effect.andThen(Deferred.succeed(started, undefined)),
-              Effect.andThen(
-                Effect.suspend(() => (runs === 1 ? Effect.never : Deferred.succeed(continued, undefined))),
-              ),
+              Effect.andThen(Effect.never),
               Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
             ),
         })
@@ -241,13 +238,13 @@ describe("SessionRunCoordinator", () => {
 
         const exit = yield* Fiber.await(resumed)
         expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBeTrue()
-        yield* Deferred.await(continued)
-        expect(runs).toBe(2)
+        expect(Array.from(yield* coordinator.active)).toEqual([])
+        expect(runs).toBe(1)
       }),
     ),
   )
 
-  it.effect("coalesces repeated wakes during stopping without overlapping drains", () =>
+  it.effect("runs a wake registered during interruption cleanup", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const firstStarted = yield* Deferred.make<void>()
@@ -255,14 +252,9 @@ describe("SessionRunCoordinator", () => {
         const cleanupGate = yield* Deferred.make<void>()
         const secondStarted = yield* Deferred.make<void>()
         let runs = 0
-        let running = 0
-        let maximum = 0
         const coordinator = yield* SessionRunCoordinator.make({
           drain: () =>
-            Effect.sync(() => {
-              maximum = Math.max(maximum, ++running)
-              return ++runs
-            }).pipe(
+            Effect.sync(() => ++runs).pipe(
               Effect.flatMap((run) =>
                 run === 1
                   ? Deferred.succeed(firstStarted, undefined).pipe(
@@ -273,7 +265,6 @@ describe("SessionRunCoordinator", () => {
                     )
                   : Deferred.succeed(secondStarted, undefined),
               ),
-              Effect.ensuring(Effect.sync(() => running--)),
             ),
         })
 
@@ -281,111 +272,12 @@ describe("SessionRunCoordinator", () => {
         yield* Deferred.await(firstStarted)
         const interrupt = yield* coordinator.interrupt("session").pipe(Effect.forkChild)
         yield* Deferred.await(cleanupStarted)
-        expect(yield* coordinator.status("session")).toEqual({ type: "stopping" })
-        yield* Effect.all([coordinator.wake("session"), coordinator.wake("session"), coordinator.wake("session")], {
-          concurrency: "unbounded",
-        })
-        expect(runs).toBe(1)
+        yield* coordinator.wake("session")
         yield* Deferred.succeed(cleanupGate, undefined)
         yield* Fiber.join(interrupt)
         yield* Deferred.await(secondStarted)
 
         expect(runs).toBe(2)
-        expect(maximum).toBe(1)
-      }),
-    ),
-  )
-
-  it.effect("continues a local continuation obligation without a wake or pending input", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const started = yield* Deferred.make<void>()
-        const continued = yield* Deferred.make<void>()
-        let runs = 0
-        const coordinator = yield* SessionRunCoordinator.make<string, never>({
-          pending: () => Effect.succeed(false),
-          drain: (_key, force, continuation) =>
-            Effect.gen(function* () {
-              runs++
-              if (runs === 1) {
-                continuation.required = true
-                yield* Deferred.succeed(started, undefined)
-                return yield* Effect.never
-              }
-              expect(force).toBe(false)
-              expect(continuation.required).toBe(true)
-              continuation.required = false
-              yield* Deferred.succeed(continued, undefined)
-            }),
-        })
-
-        yield* coordinator.wake("session")
-        yield* Deferred.await(started)
-        yield* coordinator.interrupt("session")
-        yield* Deferred.await(continued)
-        yield* Effect.yieldNow
-
-        expect(runs).toBe(2)
-        expect(yield* coordinator.status("session")).toEqual({ type: "idle" })
-      }),
-    ),
-  )
-
-  it.effect("discovers eligible durable work at settlement without an advisory wake", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const started = yield* Deferred.make<void>()
-        const continued = yield* Deferred.make<void>()
-        let pending = false
-        let runs = 0
-        const coordinator = yield* SessionRunCoordinator.make<string, never>({
-          pending: () => Effect.sync(() => pending),
-          drain: () =>
-            Effect.gen(function* () {
-              runs++
-              if (runs === 1) {
-                yield* Deferred.succeed(started, undefined)
-                return yield* Effect.never
-              }
-              pending = false
-              yield* Deferred.succeed(continued, undefined)
-            }),
-        })
-
-        yield* coordinator.wake("session")
-        yield* Deferred.await(started)
-        pending = true
-        yield* coordinator.interrupt("session")
-        yield* Deferred.await(continued)
-        yield* Effect.yieldNow
-
-        expect(runs).toBe(2)
-        expect(yield* coordinator.status("session")).toEqual({ type: "idle" })
-      }),
-    ),
-  )
-
-  it.effect("does not restart interrupted execution without follow-up work", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const started = yield* Deferred.make<void>()
-        let runs = 0
-        const coordinator = yield* SessionRunCoordinator.make({
-          pending: () => Effect.succeed(false),
-          drain: () =>
-            Effect.sync(() => runs++).pipe(
-              Effect.andThen(Deferred.succeed(started, undefined)),
-              Effect.andThen(Effect.never),
-            ),
-        })
-
-        yield* coordinator.wake("session")
-        yield* Deferred.await(started)
-        yield* coordinator.interrupt("session")
-        yield* Effect.yieldNow
-
-        expect(runs).toBe(1)
-        expect(yield* coordinator.status("session")).toEqual({ type: "idle" })
       }),
     ),
   )

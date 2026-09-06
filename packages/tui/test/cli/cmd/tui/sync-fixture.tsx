@@ -6,7 +6,6 @@ import { KVProvider, useKV } from "../../../../src/context/kv"
 import { ProjectProvider, useProject } from "../../../../src/context/project"
 import { SDKProvider } from "../../../../src/context/sdk"
 import { SyncProvider, useSync } from "../../../../src/context/sync"
-import { DataProvider } from "../../../../src/context/data"
 import { PermissionProvider } from "../../../../src/context/permission"
 import { ExitProvider } from "../../../../src/context/exit"
 import { createEventSource, createFetch, type FetchHandler, directory } from "../../../fixture/tui-sdk"
@@ -53,11 +52,9 @@ export async function mount(override?: FetchHandler, state?: string) {
             <PermissionProvider>
               <ProjectProvider>
                 <ExitProvider exit={() => {}}>
-                  <DataProvider>
-                    <SyncProvider>
-                      <Probe />
-                    </SyncProvider>
-                  </DataProvider>
+                  <SyncProvider>
+                    <Probe />
+                  </SyncProvider>
                 </ExitProvider>
               </ProjectProvider>
             </PermissionProvider>

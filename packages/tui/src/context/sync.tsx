@@ -19,8 +19,6 @@ import type {
   VcsInfo,
   SnapshotFileDiff,
   ConsoleState,
-  SessionInputAdmitted,
-  Event,
 } from "@opencode-ai/sdk/v2"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useProject } from "./project"
@@ -30,12 +28,10 @@ import { useTuiStartup } from "./runtime"
 import { createSimpleContext } from "./helper"
 import { useExit } from "./exit"
 import { useArgs } from "./args"
-import { batch, createEffect, onCleanup, onMount } from "solid-js"
+import { batch, onMount } from "solid-js"
 import path from "path"
 import { useKV } from "./kv"
 import { usePermission } from "./permission"
-import { useData } from "./data"
-import { permissionDisplay, sessionDisplay } from "./session-display"
 
 const emptyConsoleState: ConsoleState = {
   consoleManagedProviders: [],
@@ -55,6 +51,12 @@ function search<T>(items: T[], target: string, key: (item: T) => string) {
   return { found: false, index: left }
 }
 
+function compareMessage(a: Message, b: Message) {
+  return a.time.created - b.time.created || a.id.localeCompare(b.id)
+}
+
+const messageKey = (message: Message) => message.time.created + message.id
+
 export const {
   context: SyncContext,
   use: useSync,
@@ -65,7 +67,6 @@ export const {
     const startup = useTuiStartup()
     const kv = useKV()
     const permission = usePermission()
-    const data = useData()
     const [store, setStore] = createStore<{
       status: "loading" | "partial" | "complete"
       provider: Provider[]
@@ -87,9 +88,8 @@ export const {
       config: Config
       session: Session[]
       session_status: {
-        [sessionID: string]: SessionStatus | { type: "stopping" }
+        [sessionID: string]: SessionStatus
       }
-      session_pending: Record<string, SessionInputAdmitted[]>
       session_diff: {
         [sessionID: string]: SnapshotFileDiff[]
       }
@@ -132,7 +132,6 @@ export const {
       provider_default: {},
       session: [],
       session_status: {},
-      session_pending: {},
       session_diff: {},
       todo: {},
       message: {},
@@ -148,112 +147,15 @@ export const {
     const project = useProject()
     const sdk = useSDK()
 
-    const statusRevision = new Map<string, number>()
-    const pendingSequence = new Map<string, number>()
-    const pendingHydration = new Map<string, { seq: number; id: string; input?: SessionInputAdmitted }[]>()
-    const stateSyncing = new Map<string, Promise<void>>()
-    const interactionHydration = new Map<string, Event[]>()
-    const interactionSyncing = new Map<string, Promise<void>>()
-    function refreshInteractions(sessionID: string): Promise<void> {
-      const existing = interactionSyncing.get(sessionID)
-      if (existing) return existing
-      const buffered: Event[] = []
-      interactionHydration.set(sessionID, buffered)
-      const task = Promise.all([
-        sdk.client.v2.session.permission.list({ sessionID }, { throwOnError: true }),
-        sdk.client.v2.session.question.list({ sessionID }, { throwOnError: true }),
-      ])
-        .then(([permissions, questions]) => {
-          batch(() => {
-            setStore("permission", sessionID, reconcile(permissions.data.data.map(permissionDisplay)))
-            setStore("question", sessionID, reconcile(questions.data.data))
-          })
-        })
-        .finally(() => {
-          interactionSyncing.delete(sessionID)
-          interactionHydration.delete(sessionID)
-          batch(() => buffered.forEach((event) => handleEvent(event)))
-        })
-      interactionSyncing.set(sessionID, task)
-      return task
-    }
-    function refreshState(sessionID: string): Promise<void> {
-      const existing = stateSyncing.get(sessionID)
-      if (existing) return existing
-      const revision = statusRevision.get(sessionID)
-      const buffered: { seq: number; id: string; input?: SessionInputAdmitted }[] = []
-      pendingHydration.set(sessionID, buffered)
-      const task = sdk.client.v2.session
-        .state({ sessionID }, { throwOnError: true })
-        .then((response) => {
-          const snapshot = response.data.data
-          const pending = new Map(snapshot.pending.map((input) => [input.id, input]))
-          for (const change of buffered.toSorted((a, b) => a.seq - b.seq)) {
-            if (change.seq <= snapshot.after) continue
-            if (change.input) pending.set(change.id, change.input)
-            if (!change.input) pending.delete(change.id)
-          }
-          pendingSequence.set(sessionID, Math.max(snapshot.after, ...buffered.map((change) => change.seq)))
-          batch(() => {
-            setStore(
-              "session_pending",
-              sessionID,
-              reconcile([...pending.values()].toSorted((a, b) => a.admittedSeq - b.admittedSeq)),
-            )
-            if (statusRevision.get(sessionID) === revision)
-              setStore("session_status", sessionID, {
-                type: snapshot.execution.type === "running" ? "busy" : snapshot.execution.type,
-              })
-          })
-        })
-        .finally(() => {
-          stateSyncing.delete(sessionID)
-          pendingHydration.delete(sessionID)
-        })
-      stateSyncing.set(sessionID, task)
-      return task
-    }
-
-    onCleanup(
-      sdk.event.on("event", (event) => {
-        if (event.payload.type !== "sync") return
-        const change = event.payload.syncEvent
-        if (change.type !== "session.next.prompt.admitted.1" && change.type !== "session.next.prompted.1") return
-        const sessionID = change.data.sessionID
-        if (change.seq <= (pendingSequence.get(sessionID) ?? -1)) return
-        pendingSequence.set(sessionID, change.seq)
-        const input: SessionInputAdmitted | undefined =
-          change.type === "session.next.prompt.admitted.1"
-            ? {
-                id: change.data.messageID,
-                sessionID,
-                delivery: change.data.delivery,
-                prompt: change.data.prompt,
-                admittedSeq: change.seq,
-                timeCreated: change.data.timestamp,
-              }
-            : undefined
-        pendingHydration.get(sessionID)?.push({ seq: change.seq, id: change.data.messageID, input })
-        setStore("session_pending", sessionID, (pending = []) =>
-          [...pending.filter((item) => item.id !== change.data.messageID), ...(input ? [input] : [])].toSorted(
-            (a, b) => a.admittedSeq - b.admittedSeq,
-          ),
-        )
-      }),
-    )
-
-    createEffect(() => {
-      for (const session of store.session) {
-        const messages = data.session.message.list(session.id)
-        if (!messages) continue
-        const display = sessionDisplay(session, messages)
-        setStore("message", session.id, reconcile(display.messages))
-        for (const [id, parts] of Object.entries(display.parts)) setStore("part", id, reconcile(parts))
-      }
-    })
-
     const fullSyncedSessions = new Set<string>()
     const syncingSessions = new Map<string, Promise<void>>()
+    const hydratingSessions = new Map<string, { messages: Set<string>; parts: Set<string> }>()
+    const touchMessage = (sessionID: string, messageID: string) => {
+      hydratingSessions.get(sessionID)?.messages.add(messageID)
+    }
+    const touchPart = (sessionID: string, partID: string) => {
+      hydratingSessions.get(sessionID)?.parts.add(partID)
+    }
 
     function sessionListQuery(): { scope?: "project"; path?: string } {
       if (!kv.get("session_directory_filter_enabled", true)) return { scope: "project" }
@@ -271,27 +173,12 @@ export const {
         .then((x) => (x.data ?? []).toSorted((a, b) => a.id.localeCompare(b.id)))
     }
 
-    function handleEvent(event: Event, metadata: { workspace?: string } = {}) {
-      if (
-        (event.type.startsWith("permission.v2.") || event.type.startsWith("question.v2.")) &&
-        "sessionID" in event.properties &&
-        typeof event.properties.sessionID === "string"
-      ) {
-        const buffered = interactionHydration.get(event.properties.sessionID)
-        if (buffered) {
-          buffered.push(event)
-          return
-        }
-      }
+    event.subscribe((event, { directory, workspace }) => {
       switch (event.type) {
-        case "server.connected":
-          void Promise.all([...fullSyncedSessions].map((id) => result.session.sync(id, true))).catch(console.error)
-          break
         case "server.instance.disposed":
           void bootstrap()
-          void Promise.all([...fullSyncedSessions].map((id) => result.session.sync(id, true))).catch(console.error)
           break
-        case "permission.v2.replied": {
+        case "permission.replied": {
           const requests = store.permission[event.properties.sessionID]
           if (!requests) break
           const match = search(requests, event.properties.requestID, (r) => r.id)
@@ -306,13 +193,14 @@ export const {
           break
         }
 
-        case "permission.v2.asked": {
-          const request = permissionDisplay(event.properties)
+        case "permission.asked": {
+          const request = event.properties
           if (permission.mode === "auto") {
-            void sdk.client.v2.session.permission.reply({
-              sessionID: request.sessionID,
+            void sdk.client.permission.reply({
               requestID: request.id,
               reply: "once",
+              directory,
+              workspace,
             })
             break
           }
@@ -336,8 +224,8 @@ export const {
           break
         }
 
-        case "question.v2.replied":
-        case "question.v2.rejected": {
+        case "question.replied":
+        case "question.rejected": {
           const requests = store.question[event.properties.sessionID]
           if (!requests) break
           const match = search(requests, event.properties.requestID, (r) => r.id)
@@ -352,7 +240,7 @@ export const {
           break
         }
 
-        case "question.v2.asked": {
+        case "question.asked": {
           const request = event.properties
           const requests = store.question[request.sessionID]
           if (!requests) {
@@ -425,14 +313,120 @@ export const {
           break
         }
 
-        case "session.next.execution.changed": {
-          statusRevision.set(event.properties.sessionID, (statusRevision.get(event.properties.sessionID) ?? 0) + 1)
-          setStore("session_status", event.properties.sessionID, {
-            type: event.properties.status.type === "running" ? "busy" : event.properties.status.type,
-          })
-          // Cancellation cleans up ownership-scoped requests without manufacturing a user reply event.
-          if (event.properties.status.type !== "stopping" && fullSyncedSessions.has(event.properties.sessionID))
-            void refreshInteractions(event.properties.sessionID).catch(console.error)
+        case "session.status": {
+          setStore("session_status", event.properties.sessionID, event.properties.status)
+          break
+        }
+
+        case "message.updated": {
+          touchMessage(event.properties.info.sessionID, event.properties.info.id)
+          const messages = store.message[event.properties.info.sessionID]
+          if (!messages) {
+            setStore("message", event.properties.info.sessionID, [event.properties.info])
+            break
+          }
+          const result = search(messages, messageKey(event.properties.info), messageKey)
+          if (result.found) {
+            setStore("message", event.properties.info.sessionID, result.index, reconcile(event.properties.info))
+            break
+          }
+          setStore(
+            "message",
+            event.properties.info.sessionID,
+            produce((draft) => {
+              draft.splice(result.index, 0, event.properties.info)
+            }),
+          )
+          const updated = store.message[event.properties.info.sessionID]
+          if (updated.length > 100) {
+            const oldest = updated[0]
+            batch(() => {
+              setStore(
+                "message",
+                event.properties.info.sessionID,
+                produce((draft) => {
+                  draft.shift()
+                }),
+              )
+              setStore(
+                "part",
+                produce((draft) => {
+                  delete draft[oldest.id]
+                }),
+              )
+            })
+          }
+          break
+        }
+        case "message.removed": {
+          touchMessage(event.properties.sessionID, event.properties.messageID)
+          const messages = store.message[event.properties.sessionID]
+          const index = messages.findIndex((message) => message.id === event.properties.messageID)
+          if (index !== -1) {
+            setStore(
+              "message",
+              event.properties.sessionID,
+              produce((draft) => {
+                draft.splice(index, 1)
+              }),
+            )
+          }
+          break
+        }
+        case "message.part.updated": {
+          touchPart(event.properties.part.sessionID, event.properties.part.id)
+          const parts = store.part[event.properties.part.messageID]
+          if (!parts) {
+            setStore("part", event.properties.part.messageID, [event.properties.part])
+            break
+          }
+          const result = search(parts, event.properties.part.id, (part) => part.id)
+          if (result.found) {
+            setStore("part", event.properties.part.messageID, result.index, reconcile(event.properties.part))
+            break
+          }
+          setStore(
+            "part",
+            event.properties.part.messageID,
+            produce((draft) => {
+              draft.splice(result.index, 0, event.properties.part)
+            }),
+          )
+          break
+        }
+
+        case "message.part.delta": {
+          const parts = store.part[event.properties.messageID]
+          if (!parts) break
+          const result = search(parts, event.properties.partID, (part) => part.id)
+          if (!result.found) break
+          touchPart(event.properties.sessionID, event.properties.partID)
+          setStore(
+            "part",
+            event.properties.messageID,
+            produce((draft) => {
+              const part = draft[result.index]
+              const field = event.properties.field as keyof typeof part
+              const existing = part[field] as string | undefined
+              ;(part[field] as string) = (existing ?? "") + event.properties.delta
+            }),
+          )
+          break
+        }
+
+        case "message.part.removed": {
+          touchPart(event.properties.sessionID, event.properties.partID)
+          const parts = store.part[event.properties.messageID]
+          const result = search(parts, event.properties.partID, (part) => part.id)
+          if (result.found) {
+            setStore(
+              "part",
+              event.properties.messageID,
+              produce((draft) => {
+                draft.splice(result.index, 1)
+              }),
+            )
+          }
           break
         }
 
@@ -443,14 +437,13 @@ export const {
         }
 
         case "vcs.branch.updated": {
-          if (metadata.workspace === project.workspace.current()) {
+          if (workspace === project.workspace.current()) {
             setStore("vcs", { branch: event.properties.branch })
           }
           break
         }
       }
-    }
-    onCleanup(event.subscribe(handleEvent))
+    })
 
     const exit = useExit()
     const args = useArgs()
@@ -534,10 +527,8 @@ export const {
               .list({ workspace })
               .then((x) => setStore("mcp_resource", reconcile(x.data ?? {}))),
             sdk.client.formatter.status({ workspace }).then((x) => setStore("formatter", reconcile(x.data ?? []))),
-            sdk.client.v2.session.active().then((x) => {
-              for (const id of Object.keys(x.data?.data ?? {})) {
-                if (!store.session_status[id]) setStore("session_status", id, { type: "busy" })
-              }
+            sdk.client.session.status({ workspace }).then((x) => {
+              setStore("session_status", reconcile(x.data ?? {}))
             }),
             sdk.client.provider.auth({ workspace }).then((x) => setStore("provider_auth", reconcile(x.data ?? {}))),
             sdk.client.vcs.get({ workspace }).then((x) => setStore("vcs", reconcile(x.data))),
@@ -591,29 +582,27 @@ export const {
           setStore("session", reconcile(list))
         },
         status(sessionID: string) {
-          return (store.session_status[sessionID]?.type ?? "idle") === "idle" ? "idle" : "working"
+          const session = result.session.get(sessionID)
+          if (!session) return "idle"
+          if (session.time.compacting) return "compacting"
+          const messages = store.message[sessionID] ?? []
+          const last = messages.at(-1)
+          if (!last) return "idle"
+          if (last.role === "user") return "working"
+          return last.time.completed ? "idle" : "working"
         },
-        state: refreshState,
-        async interrupt(sessionID: string) {
-          if ((store.session_status[sessionID]?.type ?? "idle") === "idle") return
-          statusRevision.set(sessionID, (statusRevision.get(sessionID) ?? 0) + 1)
-          setStore("session_status", sessionID, { type: "stopping" })
-          await sdk.client.v2.session
-            .interrupt({ sessionID }, { throwOnError: true })
-            .finally(() => Promise.all([refreshState(sessionID), refreshInteractions(sessionID)]))
-        },
-        async sync(sessionID: string, force = false) {
-          if (!force && fullSyncedSessions.has(sessionID)) return refreshState(sessionID)
+        async sync(sessionID: string) {
+          if (fullSyncedSessions.has(sessionID)) return
           const syncing = syncingSessions.get(sessionID)
           if (syncing) return syncing
+          const tracker = { messages: new Set<string>(), parts: new Set<string>() }
+          hydratingSessions.set(sessionID, tracker)
           const task = (async () => {
-            const [session, , todo, diff] = await Promise.all([
+            const [session, messages, todo, diff] = await Promise.all([
               sdk.client.session.get({ sessionID }, { throwOnError: true }),
-              data.session.message.refresh(sessionID),
+              sdk.client.session.messages({ sessionID, limit: 100 }),
               sdk.client.session.todo({ sessionID }),
               sdk.client.session.diff({ sessionID }),
-              refreshState(sessionID),
-              refreshInteractions(sessionID),
             ])
             setStore(
               produce((draft) => {
@@ -621,12 +610,57 @@ export const {
                 if (match.found) draft.session[match.index] = session.data!
                 if (!match.found) draft.session.splice(match.index, 0, session.data!)
                 draft.todo[sessionID] = todo.data ?? []
+                const currentMessages = draft.message[sessionID] ?? []
+                const infos = (messages.data ?? []).flatMap((message) => {
+                  if (!tracker.messages.has(message.info.id)) return [message.info]
+                  const current = currentMessages.find((item) => item.id === message.info.id)
+                  return current ? [current] : []
+                })
+                infos.push(
+                  ...currentMessages.filter(
+                    (message) => tracker.messages.has(message.id) && !infos.some((item) => item.id === message.id),
+                  ),
+                )
+                infos.sort(compareMessage)
+                const removed = infos.slice(0, -100)
+                const visible = infos.slice(-100)
+                const visibleIDs = new Set(visible.map((message) => message.id))
+                for (const message of messages.data ?? []) {
+                  if (!visibleIDs.has(message.info.id)) {
+                    delete draft.part[message.info.id]
+                    continue
+                  }
+                  const currentParts = draft.part[message.info.id] ?? []
+                  const parts = message.parts.flatMap((part) => {
+                    const current = currentParts.find((item) => item.id === part.id)
+                    if (tracker.parts.has(part.id)) return current ? [current] : []
+                    if (
+                      current &&
+                      (part.type === "text" || part.type === "reasoning") &&
+                      (current.type === "text" || current.type === "reasoning") &&
+                      part.text.length === 0 &&
+                      current.text.length > 0
+                    ) {
+                      return [current]
+                    }
+                    return [part]
+                  })
+                  parts.push(
+                    ...currentParts.filter(
+                      (part) => tracker.parts.has(part.id) && !parts.some((item) => item.id === part.id),
+                    ),
+                  )
+                  draft.part[message.info.id] = parts
+                }
+                for (const message of removed) delete draft.part[message.id]
+                draft.message[sessionID] = visible
                 draft.session_diff[sessionID] = diff.data ?? []
               }),
             )
             fullSyncedSessions.add(sessionID)
           })().finally(() => {
             syncingSessions.delete(sessionID)
+            hydratingSessions.delete(sessionID)
           })
           syncingSessions.set(sessionID, task)
           return task
