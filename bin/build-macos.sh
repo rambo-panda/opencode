@@ -79,7 +79,8 @@ if [ -z "${OPENCODE_VERSION:-}" ]; then
   git fetch --tags
   LATEST_TAG="$(git tag --sort=-creatordate | grep -E '^v[0-9]' | head -1 2>/dev/null || true)"
   if [ -n "$LATEST_TAG" ]; then
-    git rebase "$LATEST_TAG" 2>/dev/null || true
+    echo "👉 Rebasing current branch onto: $LATEST_TAG"
+    git rebase "$LATEST_TAG"
     #OPENCODE_VERSION="${LATEST_TAG#v}"
     OPENCODE_VERSION="${LATEST_TAG}"
     echo "👉 OPENCODE_VERSION auto-detected: $OPENCODE_VERSION (from $LATEST_TAG)"
