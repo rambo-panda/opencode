@@ -121,6 +121,7 @@ function migrateStandardProvider(info: ConfigProviderV1.Info) {
   const { setCacheKey, ...rest } = info.options ?? {}
   const options = ConfigProviderOptionsV1.provider(rest)
   return {
+    canonical: info.id ? providerID(info.id) : undefined,
     name: info.name,
     env: info.env,
     package: info.npm ? packageSpecifier(info.npm) : undefined,

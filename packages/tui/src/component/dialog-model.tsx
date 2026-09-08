@@ -136,7 +136,12 @@ function DialogConnectedModels(props: {
             title: model.name,
             releaseDate: model.time.released,
             description: newDesigns() ? undefined : favorite ? "(Favorite)" : undefined,
-            category: connected() ? (freeGroup(model) ? "Free" : (provider?.name ?? model.providerID)) : undefined,
+            category:
+              connected() || provider?.canonical
+                ? freeGroup(model)
+                  ? "Free"
+                  : (provider?.name ?? model.providerID)
+                : undefined,
             footer: trailing(model, favorite),
             free: isFreeModel(model),
             onSelect() {
@@ -164,7 +169,9 @@ function DialogConnectedModels(props: {
     if (needle) {
       const results = prioritizeFavorites(
         sortModelOptions(
-          fuzzysort.go(needle, modelOptions, { keys: ["title", "category"] }).map((item) => item.obj),
+          fuzzysort
+            .go(needle, modelOptions, { keys: ["title", "category", "providerID", "providerName"] })
+            .map((item) => item.obj),
           false,
         ),
         favoritePriority,
