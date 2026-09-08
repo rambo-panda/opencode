@@ -64,6 +64,7 @@ import { useEditorContext } from "../../context/editor"
 import { useDialog } from "../../ui/dialog"
 import { DialogSelect } from "../../ui/dialog-select"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
+import { DialogSessionDelete } from "../../component/dialog-session-delete"
 import { DialogImagePreview } from "../../component/dialog-image-preview"
 import { statusLabel } from "../../component/dialog-workspace-file-changes"
 import { DialogMessage } from "./dialog-message"
@@ -906,6 +907,13 @@ export function Session(props: {
   ]
 
   const baseCommands = createMemo(() => [
+    {
+      title: "Delete session",
+      id: "session.delete",
+      group: "Session",
+      slash: { name: "delete" },
+      run: () => dialog.replace(() => <DialogSessionDelete sessionID={route.sessionID} />),
+    },
     {
       title: "Share session",
       id: "session.share",
@@ -1908,6 +1916,11 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
         </box>
       </Show>
       <AssistantRetry retry={props.message.retry} />
+      <Show when={interrupted()}>
+        <box paddingLeft={3}>
+          <text fg={theme.text.feedback.error.base}>■ Conversation interrupted</text>
+        </box>
+      </Show>
       <box paddingLeft={3} marginTop={props.message.retry || (props.message.error && !interrupted()) ? 1 : 0}>
         <text>
           <span style={{ fg: props.message.error ? theme.text.muted : local.agent.color(props.message.agent) }}>
@@ -1921,9 +1934,6 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
           </Show>
           <Show when={config.data.session.tps && tokensPerSecond()}>
             {(value) => <span style={{ fg: theme.text.muted }}> · {value().toFixed(1)} tok/s</span>}
-          </Show>
-          <Show when={interrupted()}>
-            <span style={{ fg: theme.text.muted }}> · interrupted</span>
           </Show>
         </text>
       </box>
