@@ -3,7 +3,12 @@
 - This repository does not use Changesets. Do not add `.changeset` files; follow the existing release workflow instead.
 - The default branch is `dev`. Base branches and worktrees on `origin/dev`, target PRs at `dev`, and diff against `origin/dev` unless told otherwise.
 
-## Live TUI Testing
+## Personal Branch Records
+
+- [PERSONAL.md](PERSONAL.md) records the personal modifications on this branch and their maintenance context. Read it before working on the branch to understand its differences from upstream and the reasons for existing changes.
+- Keep `PERSONAL.md` synchronized in the same change whenever making significant modifications, including feature or behavior changes, important fixes, and configuration, migration, or workflow changes. Record the purpose, final behavior, and relevant usage or compatibility notes, updating existing entries when behavior changes.
+
+## Live V2 TUI Testing
 
 - Run `bun run dev:live` from a development worktree to test its TUI against the currently elected `opencode` background server and live sessions.
 - Pass a directory after the script when needed, for example `bun run dev:live /path/to/project`.

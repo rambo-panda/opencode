@@ -3,6 +3,9 @@
 个人开发分支：`personal-beta`，初始基线为官方 `upstream/beta` 的 `11e2e0a59f`。
 旧实现保留在 `feat/provider-id-alias` 和备份 `before-beta-0908`。
 
+本文件记录个人分支的重点修改及维护背景，供理解与官方版本的差异时参考。
+按 `AGENTS.md` 的要求，开始分支工作前先阅读；重要修改需在同一次修改中同步更新本文件，说明目的、最终行为及必要的使用或兼容事项。
+
 ## 跟随官方
 
 ### 功能修改前的严格约束
@@ -146,13 +149,21 @@ OPENCODE_CHANNEL=local OPENCODE_VERSION=0.0.0-beta-19289 npm exec --yes --packag
 ```fish
 set -lx OPENCODE_CONFIG_DIR ~/.config/opencode2
 set -lx XDG_DATA_HOME ~/.local/share
-set -lx OPENCODE_DB ~/.local/share/opencode/opencode.db
 ```
 
-官方标准 beta 默认使用 `opencode.db`；本机 local 构建原本默认使用 `opencode-local.db`，因此显式指定原库。
-V2 会迁移原库中的 V1 历史。这是一次迁移，不是 V1/V2 双向历史同步；后续以 V2 为主使用。
-切换前已通过 SQLite 在线备份保存原库到 `~/.local/share/opencode/backups/`，并验证完整性。
-此次配置过程未启动或停止已有服务，也未迁移原库；已有 `opencode-local.db` 保留。
+`opencode`（V1）作为主力使用 `~/.local/share/opencode/opencode.db`。
+`opencode2`（V2）用于测试，本机 `local` 构建默认使用 `~/.local/share/opencode/opencode-local.db`。
+包装函数不设置 `OPENCODE_DB`，两个版本各自维护数据库和历史。
+官方标准 beta 默认使用 `opencode.db`，因此个人构建必须继续保留 `local` 渠道。
+
+2026-09-08 曾因显式指定 V1 原库，导致 V2 迁移重建 `workspace` 表后，V1 启动报错
+`SQLiteError: no such column: project_id`。主库从当天 11:05 的迁移前备份恢复，V2 测试库重新创建。
+迁移前原库、分离前混用库和重置前测试库均保存在 `~/.local/share/opencode/backups/`。
+
+保留 `packages/core/src/database/v1-migration.bun.ts` 及 `packages/core/src/database/migration/` 中的迁移代码。
+以后需要迁移历史时，先通过 SQLite 在线备份创建 V1 主库的独立副本，再让 V2 对该副本执行迁移。
+`OPENCODE_DB` 仅在那次手动迁移命令中指向副本，不能重新写入日常启动函数。
+迁移是单向转换，V2 数据库不供 V1 使用。
 
 新配置目录复制了 `opencode.jsonc`、`cli.json`、slim 配置和 skills，commands 仍链接到 `~/.agents/commands`。
 自定义插件迁到 `~/.config/opencode2/plugins/inherit-models.js`，保留集中维护的模型输入能力映射。
