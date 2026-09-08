@@ -123,7 +123,7 @@ export const Definitions = {
   "session.delete": keybind("ctrl+d", "Delete session"),
   "session.share": keybind("none", "Share current session"),
   "session.unshare": keybind("none", "Unshare current session"),
-  "session.interrupt": keybind("escape", "Interrupt current session"),
+  "session.interrupt": keybind("ctrl+c,escape", "Interrupt current session"),
   "session.background": keybind("ctrl+b", "Background blocking session tools"),
   "session.compact": keybind("<leader>c", "Compact the session"),
   "session.cd": keybind("none", "Change working directory"),
@@ -190,7 +190,7 @@ export const Definitions = {
   "session.toggle.thinking": keybind("none", "Toggle thinking blocks visibility"),
 
   "prompt.submit": keybind("none", "Submit prompt"),
-  "prompt.queue": keybind("<leader>return", "Queue prompt"),
+  "prompt.queue": keybind("tab,<leader>return", "Queue prompt"),
   "prompt.editor_context.clear": keybind("none", "Clear editor context"),
   "prompt.images.view": keybind("<leader>i", "View image attachments"),
   "prompt.skills": keybind("none", "Open skill selector"),

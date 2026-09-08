@@ -157,18 +157,16 @@ export const layer = Layer.effect(
         Effect.gen(function* () {
           const interrupted = yield* coordinator.interrupt(sessionID, options?.reason ?? "user", options)
           if (!options?.resume) return interrupted
-          // Resume steering input and between-turn control work from the interrupted
-          // intent. Queued next-turn prompts stay parked: a steer-scoped drain never
-          // promotes them, and a control item behind a queued prompt waits its turn.
+          // Resume admitted follow-ups, including FIFO queued input, without
+          // forcing another attempt of the interrupted message.
           // Interruption acknowledges before cleanup settles, so this wake usually lands
           // on the stopping execution's doorbell and starts the successor at settle.
           // Reading the inbox concurrently with the dying drain is safe: delivery consumes
-          // rows inside uninterruptible publications, so a steer row is either still
+          // rows inside uninterruptible publications, so an input row is either still
           // promotable here or was fully delivered and needs no resumption.
           const next = yield* SessionInbox.nextPromotable(db, sessionID, "input")
           if (next === undefined) return interrupted
-          if (next.delivery === "steer" || next.type === "compaction" || next.type === "move")
-            yield* coordinator.wake(sessionID, "steer")
+          yield* coordinator.wake(sessionID, "input")
           return interrupted
         }),
       resume: coordinator.run,

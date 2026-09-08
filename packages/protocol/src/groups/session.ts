@@ -756,7 +756,7 @@ export const makeSessionGroup = <
             identifier: "session.interrupt",
             summary: "Interrupt session execution",
             description:
-              "Interrupt active execution owned by this OpenCode process. Returns interrupted=true when an active execution was interrupted and false for the idle no-op. When resume=true, execution resumes pending steering input and next-in-line control items (manual compaction, moves) while queued prompts remain parked.",
+              "Interrupt active execution owned by this OpenCode process. Returns interrupted=true when an active execution was interrupted and false for the idle no-op. When resume=true, execution resumes pending steering input, control items and FIFO queued prompts without forcing a retry of the interrupted message.",
           }),
         ),
     )

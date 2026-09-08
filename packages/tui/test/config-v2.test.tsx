@@ -136,13 +136,15 @@ test("preserves current navigation defaults", () => {
   expect(config.keybinds.get("input.buffer.home")).toEqual([])
   expect(config.keybinds.get("input.buffer.end")).toEqual([])
   expect(config.keybinds.get("prompt.images.view")).toMatchObject([{ key: "<leader>i" }])
+  expect(config.keybinds.get("prompt.queue")).toMatchObject([{ key: "tab,<leader>return" }])
+  expect(config.keybinds.get("session.interrupt")).toMatchObject([{ key: "ctrl+c,escape" }])
+  expect(CommandMap.prompt_queue).toBe("prompt.queue")
 })
 
 test("preserves migrated v1 keybind defaults", () => {
   const pairs = [
     ["app.exit", "app_exit"],
     ["prompt.paste", "input_paste"],
-    ["prompt.queue", "prompt_queue"],
     ["session.delete", "session_delete"],
     ["session.list", "session_list"],
     ["agent.list", "agent_list"],

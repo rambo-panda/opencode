@@ -12,7 +12,6 @@ import path from "path"
 import { useLocal } from "../../context/local"
 import { useTheme, useThemes } from "../../context/theme"
 import { tint } from "../../theme/color"
-import { createAnimatable, tween } from "../../ui/animation"
 import { EmptyBorder, SplitBorder } from "../../ui/border"
 import { useTuiPaths, useTuiTerminalEnvironment } from "../../context/runtime"
 import { useClipboard } from "../../context/clipboard"
@@ -105,41 +104,10 @@ function randomIndex(count: number) {
   return Math.floor(Math.random() * count)
 }
 
-export function PromptInterruptStatus(props: {
-  armed: boolean
-  animations?: boolean
-  text: RGBA
-  subdued: RGBA
-  warning: RGBA
-  flash?: RGBA
-}) {
-  const ignition = createAnimatable(
-    { level: 0 },
-    { enabled: () => props.animations ?? false, transition: tween({ duration: 0.22 }) },
-  )
-  createEffect(
-    on(
-      () => props.armed,
-      (armed) => {
-        if (!armed || !props.animations) return ignition.jump({ level: 0 })
-        ignition.jump({ level: 0.75 })
-        ignition.animate({ level: 0 })
-      },
-      { defer: true },
-    ),
-  )
-  const armedColor = createMemo(() => {
-    const level = ignition.value().level
-    if (level === 0 || !props.flash) return props.warning
-    return tint(props.warning, props.flash, level)
-  })
-
+export function PromptInterruptStatus(props: { shortcut: string; text: RGBA; subdued: RGBA }) {
   return (
-    <text fg={props.armed ? armedColor() : props.text} wrapMode="none" truncate flexShrink={1}>
-      esc{" "}
-      <span style={{ fg: props.armed ? armedColor() : props.subdued }}>
-        {props.armed ? "again to interrupt" : "interrupt"}
-      </span>
+    <text fg={props.text} wrapMode="none" truncate flexShrink={1}>
+      {props.shortcut} <span style={{ fg: props.subdued }}>interrupt</span>
     </text>
   )
 }
@@ -211,6 +179,7 @@ export function Prompt(props: PromptProps) {
   const history = usePromptHistory()
   const stash = usePromptStash()
   const keymap = Keymap.use()
+  const shortcuts = Keymap.useShortcuts()
   const renderer = useRenderer()
   const exit = useExit()
   const dimensions = useTerminalDimensions()
@@ -358,14 +327,12 @@ export function Prompt(props: PromptProps) {
     prompt: PromptInfo
     mode: "normal" | "shell"
     extmarkToPart: Map<number, PromptPartRef>
-    interrupt: number
     placeholder: number
   }>({
     placeholder: randomIndex(list().length),
     prompt: emptyPrompt(),
     mode: "normal",
     extmarkToPart: new Map(),
-    interrupt: 0,
   })
   let disposed = false
   let pasteQueue = Promise.resolve()
@@ -445,6 +412,7 @@ export function Prompt(props: PromptProps) {
         title: "Queue prompt",
         name: "prompt.queue",
         category: "Prompt",
+        enabled: () => status() === "running" && !auto()?.visible && !!inputTarget()?.plainText.trim(),
         run: async (_input: string | undefined, event?: KeyEvent) => {
           event?.preventDefault()
           event?.stopPropagation()
@@ -512,19 +480,12 @@ export function Prompt(props: PromptProps) {
           }
           if (!props.sessionID) return
 
-          setStore("interrupt", store.interrupt + 1)
-
-          setTimeout(() => {
-            setStore("interrupt", 0)
-          }, 5000)
-
-          if (store.interrupt >= 2) {
-            void client.api.session.interrupt({
+          void client.api.session
+            .interrupt({
               sessionID: props.sessionID,
               resume: true,
             })
-            setStore("interrupt", 0)
-          }
+            .catch(toast.error)
           dialog.clear()
         },
       },
@@ -944,7 +905,7 @@ export function Prompt(props: PromptProps) {
   Keymap.createLayer(() => {
     return {
       target: inputTarget,
-      enabled: inputTarget() !== undefined && !disabled() && store.prompt.text !== "",
+      enabled: inputTarget() !== undefined && !disabled() && status() !== "running" && store.prompt.text !== "",
       bindings: ["prompt.clear"],
     }
   })
@@ -1577,7 +1538,7 @@ export function Prompt(props: PromptProps) {
   const footerInput = () => ({
     sessionID: props.sessionID,
     mode: store.mode,
-    showDetails: store.interrupt === 0 || dimensions().width >= 80,
+    showDetails: true,
   })
 
   const placeholderText = createMemo(() => {
@@ -1890,12 +1851,9 @@ export function Prompt(props: PromptProps) {
                         </Show>
                       </box>
                       <PromptInterruptStatus
-                        armed={store.interrupt > 0}
-                        animations={animationsEnabled()}
+                        shortcut={shortcuts.get("session.interrupt") ?? ""}
                         text={theme.text.default}
                         subdued={theme.text.subdued}
-                        warning={theme.text.feedback.warning.default}
-                        flash={theme.decrease(theme.text.feedback.warning.default, 2)}
                       />
                     </box>
                   </Match>
