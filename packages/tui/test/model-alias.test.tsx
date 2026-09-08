@@ -4,13 +4,19 @@ import { createAppFixture } from "./fixture/app"
 import { tmpdir } from "./fixture/fixture"
 import { directory, json } from "./fixture/tui-client"
 
-test.each(["live-b", "Work account"])("API-key provider aliases are labeled and selectable by %s", async (query) => {
+test.each([
+  ["live-b", "live-b", "Work account", true],
+  ["Work account", "live-b", "Work account", true],
+  ["17zy", "17zy", "Custom account", false],
+  ["Custom account", "17zy", "Custom account", false],
+  ["response", "response", "response", false],
+] as const)("API-key providers are labeled and selectable by %s", async (query, providerID, name, canonical) => {
   await using state = await tmpdir()
   const location = { directory, project: { id: "project", directory, canonical: directory } }
   const providers = [
     { id: "live-upstream", name: "Live upstream" },
     { id: "live-a", name: "Personal account", canonical: "live-upstream", settings: { apiKey: "test-a" } },
-    { id: "live-b", name: "Work account", canonical: "live-upstream", settings: { apiKey: "test-b" } },
+    { id: providerID, name, ...(canonical ? { canonical: "live-upstream" } : {}), settings: { apiKey: "test-b" } },
   ]
   const session = {
     id: `ses_${crypto.randomUUID()}`,
@@ -74,7 +80,7 @@ test.each(["live-b", "Work account"])("API-key provider aliases are labeled and 
   const listing = await setup.waitForFrame(
     (frame) =>
       frame.includes("Select model") &&
-      frame.includes("Work account") &&
+      frame.includes(name) &&
       setup.renderer.currentFocusedRenderable instanceof InputRenderable,
   )
   expect(listing).toContain("Personal account")
@@ -84,11 +90,11 @@ test.each(["live-b", "Work account"])("API-key provider aliases are labeled and 
   setup.mockInput.pressEnter()
   await setup.waitForFrame(
     (frame) =>
-      frame.includes("Build · Live QA model Work account") &&
+      frame.includes(`Build · Live QA model ${name}`) &&
       setup.renderer.currentFocusedRenderable instanceof TextareaRenderable,
   )
   await setup.mockInput.typeText("Use selected account")
   setup.mockInput.pressEnter()
   await setup.waitFor(() => mutations.some((item) => item.type === "prompt"))
-  expect(mutations[0]).toEqual({ type: "model", body: { model: { providerID: "live-b", id: "qa-model" } } })
+  expect(mutations[0]).toEqual({ type: "model", body: { model: { providerID, id: "qa-model" } } })
 })

@@ -54,7 +54,8 @@ bin/rebase-beta.sh <old-beta-commit>
 ```
 
 未指定名称时显示配置 key；后层配置不覆盖前层显式名称。
-模型选择器也显示账号别名，并支持按 Provider ID 或显示名搜索，包括直接在配置中填写 API key 的账号。
+模型选择器的 Provider 分组名称按 `name → 配置 key（Provider ID）` 决定，并支持按 ID 或显示名搜索。
+普通自定义 Provider 和 `canonical` 别名都遵循这条规则，不依赖 Integration 连接；`canonical` 只决定继承来源。
 继承时移除源 provider、模型及 variant 的 `apiKey`、`accessToken`、`authToken`，再应用本账号配置。
 这是普通 API key 多账号支持，专用 OAuth、云平台认证插件和自定义授权 headers 仍按官方规则处理。
 
@@ -190,6 +191,7 @@ V2 会迁移原库中的 V1 历史。这是一次迁移，不是 V1/V2 双向历
 已验证单键中断、草稿保留、steer/FIFO 顺序、无待处理输入时不重试、删除守卫与数字确认、
 重启后的中断记录、`.sh` 文件引用、两个别名账号的独立凭证，以及插件修改 body/headers。
 真实测试发现并修复了无 Integration 连接时模型选择器无法区分别名、无法按别名搜索的问题。
+后续真实 PTY 复测也覆盖了无 `canonical` 的普通 Provider：显式名称、名称缺省时的配置 key，以及按 ID 搜索选择。
 自定义 `inherit-models.js` 另经真实隔离 V2 服务验证：插件处于 active，缺省能力补齐、显式配置优先、
 项目覆盖、未知模型保留及配置热刷新均通过；未调用模型或操作本机已有服务。
 

@@ -136,12 +136,7 @@ function DialogConnectedModels(props: {
             title: model.name,
             releaseDate: model.time.released,
             description: newDesigns() ? undefined : favorite ? "(Favorite)" : undefined,
-            category:
-              connected() || provider?.canonical
-                ? freeGroup(model)
-                  ? "Free"
-                  : (provider?.name ?? model.providerID)
-                : undefined,
+            category: freeGroup(model) ? "Free" : (provider?.name ?? model.providerID),
             footer: trailing(model, favorite),
             free: isFreeModel(model),
             onSelect() {
