@@ -50,7 +50,7 @@ const unsupportedExperimental = [
   "primary_tools",
   "continue_loop_on_deny",
 ] as const
-const unsupportedProvider = ["id", "whitelist", "blacklist"] as const
+const unsupportedProvider = ["whitelist", "blacklist"] as const
 const unsupportedModel = ["release_date", "attachment", "reasoning", "temperature", "experimental"] as const
 const LegacyAutoupdate = Schema.Literals([true, false, "notify"])
 
