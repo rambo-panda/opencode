@@ -6,6 +6,11 @@
 - Default new branches and worktrees to `v2`, or `origin/v2` when the local `v2` ref is unavailable, and default pull requests to target `v2`. Use another base or target branch when the requester explicitly instructs it.
 - Local `main` ref may not exist; use `v2` or `origin/v2` for diffs.
 
+## Personal Branch Records
+
+- [PERSONAL.md](PERSONAL.md) records the personal modifications on this branch and their maintenance context. Read it before working on the branch to understand its differences from upstream and the reasons for existing changes.
+- Keep `PERSONAL.md` synchronized in the same change whenever making significant modifications, including feature or behavior changes, important fixes, and configuration, migration, or workflow changes. Record the purpose, final behavior, and relevant usage or compatibility notes, updating existing entries when behavior changes.
+
 ## Live V2 TUI Testing
 
 - Run `bun run dev:live` from a development worktree to test its TUI against the currently elected `opencode` background server and live sessions.
