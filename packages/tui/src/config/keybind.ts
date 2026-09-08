@@ -125,7 +125,7 @@ export const Definitions = {
   // Retain shipped configuration names; session sharing was removed.
   "session.share": keybind("none", "Deprecated: session sharing was removed"),
   "session.unshare": keybind("none", "Deprecated: session sharing was removed"),
-  "session.interrupt": keybind("escape", "Interrupt current session"),
+  "session.interrupt": keybind("ctrl+c,escape", "Interrupt current session"),
   "session.background": keybind("ctrl+b", "Background blocking session tools"),
   "session.compact": keybind("<leader>c", "Compact the session"),
   "session.aside": keybind("none", "Ask a side question"),
@@ -197,7 +197,7 @@ export const Definitions = {
   "session.toggle.thinking": keybind("none", "Toggle thinking blocks visibility"),
 
   "prompt.submit": keybind("none", "Submit prompt"),
-  "prompt.queue": keybind("<leader>return", "Queue prompt"),
+  "prompt.queue": keybind("tab,<leader>return", "Queue prompt"),
   "prompt.editor_context.clear": keybind("none", "Clear editor context"),
   "prompt.images.view": keybind("<leader>i", "View image attachments"),
   "prompt.skills": keybind("none", "Open skill selector"),

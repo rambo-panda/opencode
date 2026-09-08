@@ -1867,7 +1867,34 @@ describe("SessionRestart background recovery", () => {
 })
 
 describe("SessionExecution interrupt continuation", () => {
-  it.effect("resumes only steering input after an interrupt with continue", () =>
+  for (const mode of ["no-pending", "no-resume"] as const)
+    it.effect(`does not restart interrupted work with ${mode}`, () =>
+      Effect.gen(function* () {
+        const database = yield* Database.Service
+        const sessionID = Session.ID.make(`ses_interrupt_${mode}`)
+        yield* seedSessions(database, [sessionID])
+        if (mode === "no-resume") yield* seedInbox(database, sessionID, ["queue"])
+        const draining = yield* Deferred.make<void>()
+        const drains: boolean[] = []
+        const scope = yield* Scope.make()
+        yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+        const context = yield* buildExecution(scope, (input) =>
+          Effect.suspend(() => {
+            drains.push(input.force)
+            return Deferred.succeed(draining, undefined).pipe(Effect.andThen(Effect.never))
+          }),
+        )
+        const execution = Context.get(context, SessionExecution.Service)
+        yield* execution.resume(sessionID).pipe(Effect.forkScoped)
+        yield* Deferred.await(draining)
+        yield* execution.interrupt(sessionID, { resume: mode === "no-pending" })
+        yield* execution.awaitIdle(sessionID)
+        expect(drains).toEqual([true])
+        expect(yield* SessionInbox.list(database.db, sessionID)).toHaveLength(mode === "no-resume" ? 1 : 0)
+      }),
+    )
+
+  it.effect("resumes admitted follow-ups after an interrupt with continue", () =>
     Effect.gen(function* () {
       const database = yield* Database.Service
       const sessionID = Session.ID.make("ses_continue_steer")
@@ -1892,15 +1919,15 @@ describe("SessionExecution interrupt continuation", () => {
       yield* execution.interrupt(sessionID, { resume: true })
       yield* execution.awaitIdle(sessionID)
 
-      // The successor drain is steer-scoped: queued next-turn work stays parked.
+      // The successor can drain both steers and FIFO queued input.
       expect(drains).toEqual([
         { force: true, promotable: "input" },
-        { force: false, promotable: "steer" },
+        { force: false, promotable: "input" },
       ])
     }),
   )
 
-  it.effect("stays parked after an interrupt with continue when only queued work remains", () =>
+  it.effect("resumes FIFO queued work after an interrupt with continue", () =>
     Effect.gen(function* () {
       const database = yield* Database.Service
       const sessionID = Session.ID.make("ses_continue_parked")
@@ -1914,6 +1941,7 @@ describe("SessionExecution interrupt continuation", () => {
       const context = yield* buildExecution(scope, (input) =>
         Effect.suspend(() => {
           drains.push(input.promotable)
+          if (drains.length > 1) return Effect.void
           return Deferred.succeed(draining, undefined).pipe(Effect.andThen(Effect.never))
         }),
       )
@@ -1924,7 +1952,7 @@ describe("SessionExecution interrupt continuation", () => {
       yield* execution.interrupt(sessionID, { resume: true })
       yield* execution.awaitIdle(sessionID)
 
-      expect(drains).toEqual(["input"])
+      expect(drains).toEqual(["input", "input"])
       expect(yield* execution.active).toEqual(new Set())
     }),
   )
@@ -1947,7 +1975,7 @@ describe("SessionExecution interrupt continuation", () => {
       yield* execution.interrupt(sessionID, { resume: true })
       yield* execution.awaitIdle(sessionID)
 
-      expect(drains).toEqual([{ force: false, promotable: "steer" }])
+      expect(drains).toEqual([{ force: false, promotable: "input" }])
     }),
   )
 
@@ -1979,12 +2007,12 @@ describe("SessionExecution interrupt continuation", () => {
       // Control work is housekeeping, not next-turn input: continue runs it.
       expect(drains).toEqual([
         { force: true, promotable: "input" },
-        { force: false, promotable: "steer" },
+        { force: false, promotable: "input" },
       ])
     }),
   )
 
-  it.effect("keeps a control item parked behind a queued prompt on continue", () =>
+  it.effect("resumes queued input before the control item behind it on continue", () =>
     Effect.gen(function* () {
       const database = yield* Database.Service
       const sessionID = Session.ID.make("ses_continue_control_behind")
@@ -2002,8 +2030,8 @@ describe("SessionExecution interrupt continuation", () => {
       yield* execution.interrupt(sessionID, { resume: true })
       yield* execution.awaitIdle(sessionID)
 
-      // The queued prompt is next in line; the compaction behind it waits its turn.
-      expect(drains).toEqual([])
+      // The runner retains FIFO ordering within the admitted input drain.
+      expect(drains).toEqual([{ force: false, promotable: "input" }])
     }),
   )
 })
