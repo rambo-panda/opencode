@@ -17,14 +17,18 @@ const outdir = path.resolve(
   dir,
   process.argv.find((arg) => arg.startsWith("--outdir="))?.slice("--outdir=".length) ?? "dist",
 )
-if (outdir === dir) throw new Error("--outdir must not be the package directory")
+const relative = path.relative(outdir, dir)
+if (relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)))
+  throw new Error("--outdir must not be the package directory or one of its ancestors")
 process.chdir(dir)
-
-await rm(outdir, { recursive: true, force: true })
 
 const singleFlag = process.argv.includes("--single")
 const baselineFlag = process.argv.includes("--baseline")
 const requestedTarget = process.argv.find((arg) => arg.startsWith("--target="))?.slice("--target=".length)
+const only = process.argv
+  .find((arg) => arg.startsWith("--only="))
+  ?.slice("--only=".length)
+  .split(",")
 const skipInstall = process.argv.includes("--skip-install")
 const skipWebUi = process.argv.includes("--skip-web-ui")
 const solidPlugin = createSolidTransformPlugin()
@@ -50,17 +54,27 @@ const allTargets: {
   { os: "win32", arch: "x64", avx2: false },
 ]
 
+if (only && requestedTarget !== undefined) throw new Error("Use either --only or --target")
+if (only)
+  only.forEach((name) => {
+    if (!allTargets.some((item) => targetName(item) === `${binary}-${name}`))
+      throw new Error(`Unknown build target: ${name}`)
+  })
 const targets =
-  requestedTarget !== undefined
-    ? allTargets.filter((item) => targetName(item) === requestedTarget)
-    : singleFlag
-      ? allTargets.filter((item) => {
-          if (item.os !== process.platform || item.arch !== process.arch) return false
-          if (item.avx2 === false) return baselineFlag
-          return item.abi === undefined
-        })
-      : allTargets
+  only !== undefined
+    ? allTargets.filter((item) => only.includes(targetName(item).slice(binary.length + 1)))
+    : requestedTarget !== undefined
+      ? allTargets.filter((item) => targetName(item) === requestedTarget)
+      : singleFlag
+        ? allTargets.filter((item) => {
+            if (item.os !== process.platform || item.arch !== process.arch) return false
+            if (item.avx2 === false) return baselineFlag
+            return item.abi === undefined
+          })
+        : allTargets
 if (!targets.length) throw new Error(`Unknown build target: ${requestedTarget}`)
+
+await rm(outdir, { recursive: true, force: true })
 
 if (!skipInstall)
   await $`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]} @opencode-ai/pty@${pkg.dependencies["@opencode-ai/pty"]}`
