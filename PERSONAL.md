@@ -108,17 +108,23 @@ bin/build-macos.sh darwin-arm64 --outdir=/tmp/opencode-build
 
 默认产物为 `dist/cli-darwin-<架构>/bin/opencode2`。
 脚本使用仓库要求的 Bun 版本；本机版本不匹配时，通过 npm 执行对应版本。
+版本号使用当前 `upstream/beta` 代码基线对应的官方发布版本，保留个人 `local` 服务渠道。
+例如初始基线 `11e2e0a59f` 对应官方 `0.0.0-beta-19289`；个人补丁不追加版本后缀。
+脚本通过官方发布工作流匹配源码提交，并确认 NPM 中存在该版本，不直接套用最新发布号。
+离线构建时可显式设置 `OPENCODE_VERSION=<对应的官方版本>`。官方 beta 本身使用 `0.0.0-beta-*` 编号，
+它并不是源码 `package.json` 中的 `1.x` 版本；插件仍需支持官方 beta 的版本规则。
 `--skip-web-ui` 可跳过内嵌 Web UI，`--skip-install` 可在依赖已就绪时跳过 builder 的跨平台依赖安装。
 
 多目标直接使用官方 builder，保留个人 `--only` 参数：
 
 ```sh
-OPENCODE_CHANNEL=local npm exec --yes --package=bun@1.4.2 -- bun run \
+OPENCODE_CHANNEL=local OPENCODE_VERSION=0.0.0-beta-19289 npm exec --yes --package=bun@1.4.2 -- bun run \
   packages/cli/script/build.ts \
   --only=darwin-arm64,darwin-x64 --outdir=/tmp/opencode-build
 ```
 
 直接运行 builder 时，相对输出路径基于 `packages/cli`；包装脚本则基于仓库根目录。
+直接调用 builder 需自行提供当前基线对应的 `OPENCODE_VERSION`。
 有效构建开始前会清空输出目录，无效目标会先报错，不清空目录。
 
 ## 本机启动与历史
@@ -143,6 +149,7 @@ V2 会迁移原库中的 V1 历史。这是一次迁移，不是 V1/V2 双向历
 
 重新打开 fish 或执行 `source ~/.config/fish/conf.d/omf.fish` 后，新函数生效。
 已有后台服务保留启动时的配置路径和环境；等现有任务结束后执行一次 `opencode2 service restart`，再运行 `opencode2`。
+同一官方版本下再次构建个人补丁时，也需重启服务才能使用新二进制；官方版本号不会随个人修改变化。
 重启会停止该服务的任务和持久终端；不要放进每次启动的包装函数。
 
 `service-local.json` 的 password 是官方自动生成、跨重启复用的本地服务连接密码，与模型 API key 无关。
