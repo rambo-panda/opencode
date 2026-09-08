@@ -78,7 +78,7 @@ export function DialogModel(props: { providerID?: string }) {
             title: model.name,
             releaseDate: model.time.released,
             description: favorite ? "(Favorite)" : undefined,
-            category: connected() ? (provider?.name ?? model.providerID) : undefined,
+            category: connected() || provider?.canonical ? (provider?.name ?? model.providerID) : undefined,
             footer: free(model) ? "Free" : undefined,
             onSelect() {
               onSelect(model.providerID, model.id)
@@ -105,7 +105,9 @@ export function DialogModel(props: { providerID?: string }) {
     if (needle) {
       return prioritizeFavorites(
         sortModelOptions(
-          fuzzysort.go(needle, modelOptions, { keys: ["title", "category"] }).map((item) => item.obj),
+          fuzzysort
+            .go(needle, modelOptions, { keys: ["title", "category", "providerID", "providerName"] })
+            .map((item) => item.obj),
           false,
         ),
         favoritePriority,

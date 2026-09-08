@@ -447,7 +447,6 @@ describe("ConfigNormalize", () => {
     expect(result.diagnostics.filter((item) => item.kind === "unsupported").map((item) => item.path)).toEqual([
       ["logLevel"],
       ["agent", "reviewer", "name"],
-      ["provider", "custom", "id"],
       ["provider", "custom", "whitelist"],
       ["provider", "custom", "models", "model", "release_date"],
       ["provider", "custom", "models", "model", "status"],

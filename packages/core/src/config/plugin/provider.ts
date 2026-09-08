@@ -4,7 +4,7 @@ import { define } from "@opencode/plugin/effect/plugin"
 import { Document, type Entry } from "@opencode/schema/config"
 import { ConfigProvider } from "@opencode/schema/config/provider"
 import { Money } from "@opencode/schema/money"
-import { Effect } from "effect"
+import { Effect, Struct } from "effect"
 import { Config } from "../../config.js"
 import { Model } from "../../model.js"
 import { Provider } from "../../provider.js"
@@ -21,6 +21,7 @@ export const Plugin = define({
       ctx.integration.reload().pipe(Effect.andThen(ctx.provider.reload())),
     )
     yield* ctx.integration.transform((integrations) => {
+      const configured = new Set<string>()
       for (const [id, provider] of configuredProviders(loaded.entries)) {
         const integrationID = id
         if (!integrations.get(integrationID)) {
@@ -30,8 +31,9 @@ export const Plugin = define({
           })
         }
         integrations.update(integrationID, (integration) => {
-          integration.name = provider.name ?? integration.name
+          if (provider.name !== undefined || !configured.has(id)) integration.name = provider.name ?? id
         })
+        configured.add(id)
         if (provider.env !== undefined) {
           integrations.method.update({
             integrationID,
@@ -53,20 +55,25 @@ export const Plugin = define({
     }
     yield* ctx.provider.transform((providers) => {
       const next: typeof sources.models = new Map()
+      const configured = new Set<string>()
       for (const [id, item] of configuredProviders(loaded.entries)) {
         const providerID = id
         const current = providers.get(providerID)
         const source = providers.get(item.canonical ?? current?.provider.canonical ?? providerID)
         const changed = item.canonical !== undefined && item.canonical !== current?.provider.canonical
+        const name = item.name ?? (configured.has(id) ? current?.provider.name : id)
         providers.update(providerID, (provider) => {
-          if (changed && source && source.provider !== provider)
+          if (changed && source && source.provider !== provider) {
             Object.assign(provider, structuredClone(source.provider), {
               id: provider.id,
               integrationID: provider.integrationID,
             })
+            if (provider.settings)
+              provider.settings = Struct.omit(provider.settings, ["apiKey", "accessToken", "authToken"])
+          }
           provider.activation = "enabled"
           if (item.canonical !== undefined) provider.canonical = item.canonical
-          if (item.name !== undefined) provider.name = item.name
+          provider.name = name ?? providerID
           if (item.package !== undefined) provider.package = item.package
           if (item.compaction !== undefined) provider.compaction = { ...item.compaction }
           if (item.transport !== undefined) provider.transport = item.transport
@@ -74,8 +81,13 @@ export const Plugin = define({
           if (item.headers !== undefined) provider.headers = Provider.mergeHeaders(provider.headers, item.headers)
           if (item.body !== undefined) provider.body = Provider.mergeOverlay(provider.body, item.body)
         })
+        configured.add(id)
         const definitions = new Map<string, { readonly inherit: boolean; readonly base?: Model.Info }>()
-        for (const [id, config] of Object.entries(item.models ?? {})) {
+        const entries: NonNullable<typeof item.models> = {
+          ...(changed && source ? Object.fromEntries(Array.from(source.models.keys(), (id) => [id, {}])) : {}),
+          ...item.models,
+        }
+        for (const [id, config] of Object.entries(entries)) {
           const base = source?.models.get(config.modelID ?? id) ?? source?.models.get(id)
           const inherit = changed || !current?.models.has(id)
           // Bind the source at this point in the provider fold. Later source edits/removal
@@ -83,7 +95,16 @@ export const Plugin = define({
           definitions.set(id, { inherit, base: base && structuredClone(base) })
           if (!inherit) continue
           providers.models.update(providerID, id, (model) => {
-            if (base) Object.assign(model, structuredClone(base))
+            if (base) {
+              Object.assign(model, structuredClone(base))
+              if (source?.provider.id !== providerID) {
+                if (model.settings) model.settings = Struct.omit(model.settings, ["apiKey", "accessToken", "authToken"])
+                model.variants?.forEach((variant) => {
+                  if (variant.settings)
+                    variant.settings = Struct.omit(variant.settings, ["apiKey", "accessToken", "authToken"])
+                })
+              }
+            }
             if (item.package !== undefined) model.package = undefined
             if (item.settings?.baseURL !== undefined && model.settings) delete model.settings.baseURL
           })
@@ -107,6 +128,13 @@ export const Plugin = define({
           models.update(providerID, id, (model) => {
             if (inherit && source?.base) {
               Object.assign(model, structuredClone(source.base))
+              if (source.base.providerID !== providerID) {
+                if (model.settings) model.settings = Struct.omit(model.settings, ["apiKey", "accessToken", "authToken"])
+                model.variants?.forEach((variant) => {
+                  if (variant.settings)
+                    variant.settings = Struct.omit(variant.settings, ["apiKey", "accessToken", "authToken"])
+                })
+              }
               if (item.package !== undefined) model.package = undefined
               if (item.settings?.baseURL !== undefined && model.settings) delete model.settings.baseURL
             }

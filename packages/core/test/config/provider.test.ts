@@ -34,6 +34,69 @@ function required<T>(value: T | undefined): T {
 const decode = Schema.decodeUnknownSync(Info)
 
 describe("ConfigProviderPlugin.Plugin", () => {
+  it.effect("inherits whole catalogs for independent accounts and accepts legacy aliases", () =>
+    Effect.gen(function* () {
+      const providers = yield* Provider.Service
+      const models = yield* Model.Service
+      const integrations = yield* Integration.Service
+      yield* providers.transform((editor) => {
+        editor.update(Provider.ID.anthropic, (provider) => {
+          provider.name = "Anthropic"
+          provider.settings = { apiKey: "original-key" }
+        })
+        for (const id of ["fast", "large"])
+          editor.models.update(Provider.ID.anthropic, Model.ID.make(id), (model) => {
+            model.limit = { context: 200_000, output: 8_000 }
+            model.settings = { apiKey: "original-key" }
+            model.variants = [{ id: Model.VariantID.make("fast"), settings: { authToken: "original-token" } }]
+          })
+      })
+      const legacy = ConfigNormalize.normalize({
+        provider: { "claude-b": { id: "anthropic", options: { apiKey: "second-key" } } },
+      })
+      if (legacy.type !== "normalized") throw new Error("Expected normalized legacy alias")
+      expect(legacy.diagnostics).toEqual([])
+      yield* addPlugin([
+        new Document({ type: "document", info: decode(legacy.encoded) }),
+        new Document({
+          type: "document",
+          info: decode({
+            providers: {
+              "claude-empty": { canonical: "anthropic" },
+              "claude-c": {
+                canonical: "anthropic",
+                name: "Third account",
+                settings: { apiKey: "third-key" },
+                models: { fast: { limit: { output: 4_000 } } },
+              },
+            },
+          }),
+        }),
+        new Document({
+          type: "document",
+          info: decode({ providers: { "claude-c": { headers: { "x-extra": "yes" } } } }),
+        }),
+      ])
+      for (const [id, key, name] of [
+        ["anthropic", "original-key", "Anthropic"],
+        ["claude-b", "second-key", "claude-b"],
+        ["claude-c", "third-key", "Third account"],
+        ["claude-empty", undefined, "claude-empty"],
+      ] as const) {
+        const providerID = Provider.ID.make(id)
+        expect((yield* providers.get(providerID))?.name).toBe(name)
+        for (const modelID of ["fast", "large"]) {
+          const model = required(yield* models.get(providerID, Model.ID.make(modelID)))
+          expect(model.providerID).toBe(providerID)
+          expect(model.settings?.apiKey).toBe(key)
+          expect(model.variants?.[0]?.settings?.authToken).toBe(id === "anthropic" ? "original-token" : undefined)
+          expect(model.limit.output).toBe(id === "claude-c" && modelID === "fast" ? 4_000 : 8_000)
+        }
+        if (id !== "anthropic") expect((yield* integrations.get(Integration.ID.make(id)))?.name).toBe(name)
+      }
+    }),
+  )
+
   it.effect("inherits provider compaction policy with model overrides and rejects unsupported routes", () =>
     Effect.gen(function* () {
       const models = yield* Model.Service

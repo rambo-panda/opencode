@@ -247,6 +247,7 @@ export function migrateProvider(sourceID: string, info: ConfigProviderV1.Info) {
 function migrateStandardProvider(info: ConfigProviderV1.Info) {
   const options = ConfigProviderOptionsV1.provider(info.options ?? {})
   return {
+    canonical: info.id ? providerID(info.id) : undefined,
     name: info.name,
     env: info.env,
     package: info.npm ? Provider.aisdk(info.npm) : undefined,
