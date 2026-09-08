@@ -4,7 +4,11 @@ import { Agent } from "@opencode/schema/agent"
 import { Money } from "@opencode/schema/money"
 import { Session } from "@opencode/schema/session"
 import type { SessionRequestKind } from "@opencode/plugin/effect/session"
+import { define } from "@opencode/plugin/promise/plugin"
+import { fromPromise } from "@opencode/plugin/promise/adapter"
 import { Location } from "@opencode/core/location"
+import { Plugin } from "@opencode/core/plugin"
+import { PluginHost } from "@opencode/core/plugin/host"
 import { PluginHooks } from "@opencode/core/plugin/hooks"
 import { Project } from "@opencode/core/project"
 import { AbsolutePath } from "@opencode/core/schema"
@@ -40,6 +44,54 @@ const transport = SessionModelTransport.Service.of({
 })
 
 describe("SessionModelRequest HTTP hooks", () => {
+  it.effect("sends the body and headers replaced by a plugin with the current request identity", () =>
+    Effect.gen(function* () {
+      const plugins = yield* Plugin.Service
+      const host = yield* PluginHost.make(plugins)
+      yield* fromPromise(
+        define({
+          id: "test.http-request",
+          async setup(ctx) {
+            await ctx.session.hook("http.request", async (event) => {
+              expect(event.sessionID).toBe(session.id)
+              expect(event.model).toEqual(model.ref)
+              expect(event.request.url).toBe("https://example.test/v1/chat/completions")
+              const body = await event.request.clone().json()
+              if (typeof body !== "object" || body === null || Array.isArray(body))
+                throw new Error("Expected JSON object")
+              const headers = new Headers(event.request.headers)
+              headers.set("x-account", "second")
+              headers.delete("x-remove")
+              headers.delete("content-length")
+              event.request = new Request(event.request, { headers, body: JSON.stringify({ ...body, custom: true }) })
+            })
+          },
+        }),
+      ).effect(host)
+      const requests = yield* SessionModelRequest.Service.pipe(Effect.provide(SessionModelRequest.layer))
+      const prepared = yield* requests.prepare({
+        kind: "primary",
+        scope: { session, agentID: Agent.ID.make("build"), model },
+        transcript: { system: [], messages: [] },
+      })
+      if (!prepared.options.http) throw new Error("Expected HTTP middleware")
+      yield* prepared.options.http(
+        HttpClientRequest.post("https://example.test/v1/chat/completions").pipe(
+          HttpClientRequest.bodyJsonUnsafe({ model: "gpt-5.5", messages: [] }),
+          HttpClientRequest.setHeader("x-remove", "old"),
+        ),
+        (request) =>
+          Effect.gen(function* () {
+            const sent = yield* HttpClientRequest.toWeb(request)
+            expect(sent.headers.get("x-account")).toBe("second")
+            expect(sent.headers.has("x-remove")).toBe(false)
+            expect(yield* Effect.promise(() => sent.json())).toEqual({ model: "gpt-5.5", messages: [], custom: true })
+            return HttpClientResponse.fromWeb(request, new Response("{}"))
+          }),
+      )
+    }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
+  )
+
   it.effect("tags every Session request kind on http.request and http.response", () =>
     Effect.gen(function* () {
       const hooks = yield* PluginHooks.Service
