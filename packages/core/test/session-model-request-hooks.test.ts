@@ -69,10 +69,12 @@ describe("SessionModelRequest HTTP hooks", () => {
         }),
       ).effect(host)
       const requests = yield* SessionModelRequest.Service.pipe(Effect.provide(SessionModelRequest.layer))
-      const prepared = yield* requests.prepare({
-        kind: "primary",
-        scope: { session, agentID: Agent.ID.make("build"), model },
-        transcript: { system: [], messages: [] },
+      const prepared = yield* requests.primary({
+        session,
+        agent: Agent.ID.make("build"),
+        model,
+        system: [],
+        messages: [],
       })
       if (!prepared.options.http) throw new Error("Expected HTTP middleware")
       yield* prepared.options.http(
