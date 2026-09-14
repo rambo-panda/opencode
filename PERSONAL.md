@@ -97,6 +97,10 @@ export default Plugin.define({
 `event` 包含当前 `sessionID`、`model`、`kind` 和真实 Request；按网关要求修改示例中的参数。
 这是 HTTP 请求钩子，不是任意 WebSocket frame 拦截接口。
 
+2026-09-14 跟随官方 [PR #47663](https://github.com/anomalyco/opencode/pull/47663)，将个人 HTTP 插件回归测试
+从已移除的 `SessionModelRequest.prepare()` 迁到 `primary()`，保留 body/headers 修改与请求身份断言。
+这只适配测试使用的内部接口，插件仍使用官方 `http.request`，无需修改配置。
+
 本地插件建议放在自动发现的 `.opencode/plugins/` 中。当前 beta 的 `plugins` 配置接受本地插件目录，
 会忽略单个文件路径；目录入口可使用 `index.js` / `index.ts`。不要照搬旧文档里的 `dist/server.js` 单文件配置。
 
