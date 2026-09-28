@@ -35,6 +35,11 @@ bin/rebase-beta.sh <old-beta-commit>
 每次更新后检查官方是否已覆盖个人补丁；已覆盖的补丁移除，避免长期维护两套实现。
 构建脚本与 Git 同步分开，构建不会偷偷 rebase。
 
+2026-09-28 将 `personal-beta` 从 `0f26ad8787` rebase 到官方 `upstream/beta` 的 `e5ecb5719d`；
+备份分支为 `beta-backup-20260928100417`。Provider 配置已适配官方拆分后的
+`ctx.provider.transform` / `ctx.model.transform`；Session 中断采用新的 `resume` 请求字段，
+保留中断后继续已接收 FIFO 输入的个人行为。生成客户端已重新生成且没有额外差异。
+
 ## Provider 多账号
 
 使用 V2 原生字段，独立 key 表示独立账号；`canonical` 指定要继承的目录。
@@ -125,18 +130,20 @@ bin/build-macos.sh darwin-arm64 --outdir=/tmp/opencode-build
 ```
 
 默认产物为 `dist/cli-darwin-<架构>/bin/opencode2`。
+脚本固定使用个人 `local` 服务渠道和 `opencode2` 命令名；官方渠道的 builder 仍产出 `opencode`。
 脚本使用仓库要求的 Bun 版本；本机版本不匹配时，通过 npm 执行对应版本。
-版本号使用当前 `upstream/beta` 代码基线对应的官方发布版本，保留个人 `local` 服务渠道。
-例如初始基线 `11e2e0a59f` 对应官方 `0.0.0-beta-19289`；个人补丁不追加版本后缀。
-脚本通过官方发布工作流匹配源码提交，并确认 NPM 中存在该版本，不直接套用最新发布号。
-离线构建时可显式设置 `OPENCODE_VERSION=<对应的官方版本>`。官方 beta 本身使用 `0.0.0-beta-*` 编号，
-它并不是源码 `package.json` 中的 `1.x` 版本；插件仍需支持官方 beta 的版本规则。
+版本号按当前 `upstream/beta` 代码基线匹配成功的官方 beta 构建工作流，不直接套用最新发布号。
+例如 `e5ecb5719d` 对应工作流 `19753`，本地产物显示 `0.0.0-beta-19753`。
+当前 beta 发布流程只发布桌面端，`19753` 没有对应的 npm CLI；
+该编号用于标识构建来源，不表示 CLI 已正式发布。离线构建时可显式设置
+`OPENCODE_VERSION=<对应工作流版本>`。beta 的 `0.0.0-beta-*` 编号并非源码 `package.json` 的
+`2.x` 版本；插件仍需支持 beta 的版本规则。
 `--skip-web-ui` 可跳过内嵌 Web UI，`--skip-install` 可在依赖已就绪时跳过 builder 的跨平台依赖安装。
 
 多目标直接使用官方 builder，保留个人 `--only` 参数：
 
 ```sh
-OPENCODE_CHANNEL=local OPENCODE_VERSION=0.0.0-beta-19289 npm exec --yes --package=bun@1.4.2 -- bun run \
+OPENCODE_CHANNEL=local OPENCODE_VERSION=0.0.0-beta-19753 npm exec --yes --package=bun@1.4.2 -- bun run \
   packages/cli/script/build.ts \
   --only=darwin-arm64,darwin-x64 --outdir=/tmp/opencode-build
 ```
@@ -171,9 +178,11 @@ set -lx XDG_DATA_HOME ~/.local/share
 
 新配置目录复制了 `opencode.jsonc`、`cli.json`、slim 配置和 skills，commands 仍链接到 `~/.agents/commands`。
 自定义插件迁到 `~/.config/opencode2/plugins/inherit-models.js`，保留集中维护的模型输入能力映射。
-它使用 V2 `catalog.transform` 读取相邻 `opencode.json(c)`，为已配置模型提供默认能力，官方随后应用显式配置。
-新增全局模型仍可复用映射；项目中的显式能力配置优先。映射针对这份全局配置，项目独有的模型需另行定义。
-配置重载时重新读取文件，不需要另写 watcher。之前临时固化的 11 处 modalities 已撤回。
+此前它使用 V2 `catalog.transform` 读取相邻 `opencode.json(c)`，为已配置模型提供默认能力，官方随后应用显式配置。
+在旧基线上，新增全局模型可复用映射，项目中的显式能力配置优先；项目独有的模型需另行定义。
+此前配置重载时重新读取文件，不需要另写 watcher。之前临时固化的 11 处 modalities 已撤回。
+2026-09-28 的 beta 已移除 `ctx.catalog.transform`，当前用户目录中的插件尚未迁移到新接口；
+使用该配置启动新服务前必须适配插件。此次 rebase 未修改用户配置，也未重启已有服务。
 同时移除了新副本中四处冗余 `tool_call: true`：V2 默认已启用工具，而该旧字段会触发完整默认 capabilities，
 覆盖插件提供的输入能力。显式 `modalities` / `capabilities` 仍优先；原 V1 文件不变。
 其余受支持的 V1 配置继续由官方在内存中转换，不强制改写成 V2 格式。slim 本身的兼容性问题见上文。
@@ -209,6 +218,9 @@ set -lx XDG_DATA_HOME ~/.local/share
 后续真实 PTY 复测也覆盖了无 `canonical` 的普通 Provider：显式名称、名称缺省时的配置 key，以及按 ID 搜索选择。
 自定义 `inherit-models.js` 另经真实隔离 V2 服务验证：插件处于 active，缺省能力补齐、显式配置优先、
 项目覆盖、未知模型保留及配置热刷新均通过；未调用模型或操作本机已有服务。
+上述真实终端与插件验证针对旧基线；2026-09-28 rebase 后，Core 的 Provider、SessionExecution、HTTP hook
+回归测试及 TUI 个人行为测试共 105 项通过，相关六个包的类型检查通过；macOS x64 隔离构建和
+`opencode2 --version` 通过。尚未使用新构建复测真实服务和 TUI。
 
 ## 低优先级待办
 
