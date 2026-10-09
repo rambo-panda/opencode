@@ -13,7 +13,7 @@ import { verifyArtifact, verifySimulationGraph } from "./verify-artifact"
 import { resolveOpencodePty } from "./opencode-pty"
 
 const dir = path.resolve(import.meta.dirname, "..")
-const binary = Script.channel === "local" ? "opencode2" : "opencode"
+const binary = "opencode"
 const outdir = path.resolve(
   dir,
   process.argv.find((arg) => arg.startsWith("--outdir="))?.slice("--outdir=".length) ?? "dist",

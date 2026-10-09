@@ -3,7 +3,7 @@ set -euo pipefail
 
 if [ "${1:-}" = "--help" ]; then
   echo "Usage: $0 [base-commit]"
-  echo "Fetch upstream/beta, back up the current branch, and rebase personal commits."
+  echo "Fetch the latest official stable V2 release, back up the current branch, and rebase personal commits."
   echo "On conflicts: resolve and run git rebase --continue, or git rebase --abort."
   exit 0
 fi
@@ -28,26 +28,33 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 1
 fi
 
-# Resolve the old upstream base before fetch moves the remote-tracking ref.
-BASE="${1:-$(git merge-base --fork-point refs/remotes/upstream/beta HEAD || true)}"
-if [ -z "$BASE" ]; then
-  echo "Cannot identify the beta base. Pass the last upstream commit explicitly." >&2
-  exit 1
-fi
+# Stable release version-sync commits are tagged without joining the V2 branch.
+BASE="${1:-$(git describe --tags --abbrev=0 --match 'v2.*' HEAD)}"
 BASE="$(git rev-parse --verify "${BASE}^{commit}")"
 if ! git merge-base --is-ancestor "$BASE" HEAD; then
   echo "The base must be an ancestor of the current branch." >&2
   exit 1
 fi
 
-git fetch --no-tags upstream '+refs/heads/beta:refs/remotes/upstream/beta'
-TARGET="$(git rev-parse refs/remotes/upstream/beta)"
-BACKUP="beta-backup-$(date +%Y%m%d%H%M%S)"
+VERSION="$(curl --connect-timeout 10 --max-time 60 -fsSL https://opencode.ai/update/api/latest/cli/npm | bun -e '
+const release = await Bun.stdin.json()
+if (release.channel !== "latest" || release.name !== "cli" || !/^2\.\d+\.\d+$/.test(release.version))
+  throw new Error("Expected an official stable V2 CLI release")
+console.log(release.version)
+')"
+git fetch --no-tags upstream '+refs/heads/v2:refs/remotes/upstream/v2' "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
+TARGET="$(git rev-parse "v${VERSION}^{commit}")"
+if [ "$BASE" = "$TARGET" ]; then
+  echo "$BRANCH already uses the latest stable V2 release ($VERSION). Nothing was rebased."
+  exit 0
+fi
+
+BACKUP="v2-backup-$(date +%Y%m%d%H%M%S)"
 git branch "$BACKUP" HEAD
-echo "Rebasing $BRANCH onto $TARGET; backup: $BACKUP"
+echo "Rebasing $BRANCH onto v$VERSION ($TARGET); backup: $BACKUP"
 if ! git rebase --onto "$TARGET" "$BASE"; then
   echo "Rebase stopped. Resolve conflicts and run git rebase --continue, or git rebase --abort." >&2
   echo "Original branch tip is saved as $BACKUP. No commits were automatically skipped." >&2
   exit 1
 fi
-echo "Rebased $BRANCH onto upstream/beta. Nothing was pushed."
+echo "Rebased $BRANCH onto stable V2 $VERSION. Nothing was pushed."
