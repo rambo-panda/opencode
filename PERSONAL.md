@@ -101,10 +101,18 @@ export default Plugin.define({
 
 ## 构建正式 V2 个人版
 
+本机更新到最新正式 V2 并构建：
+
 ```sh
-bin/build-macos.sh darwin-x64
-bin/build-macos.sh darwin-arm64 --outdir=/tmp/opencode-build
+cd /Users/rambo/work_space/opencode-fork
+bin/rebase-v2.sh
+bun install --frozen-lockfile
+bun run check
+bin/build-macos.sh darwin-x64 --skip-install
 ```
+
+构建完成并确认没有运行任务后执行 `opencode service restart`，再运行 `opencode`。
+ARM Mac 使用 `darwin-arm64`；只需重建当前基线时可省略 rebase。
 
 产物为 `dist/cli-darwin-<架构>/bin/opencode`，默认包含 Web UI。命令名统一为 `opencode`，
 保留个人 `local` 服务渠道；版本从 HEAD 最近的稳定 V2 祖先标签推导，不再使用 beta 工作流编号。
@@ -121,15 +129,25 @@ OPENCODE_CHANNEL=local OPENCODE_VERSION=2.0.26 bun run packages/cli/script/build
 
 ## 日常配置与服务
 
-`~/.local/bin/opencode` 指向本仓库 `dist/cli-darwin-x64/bin/opencode`。
-fish 的 `opencode` 使用原 `_opencode_run` 设置现有凭证和环境，读取 `~/.config/opencode`。
-凭证函数保持原样；`opencode2` 测试函数已删除，旧 beta 二进制已移入备份。
-已打开的终端可刷新配置，之后直接使用 `opencode`：
+`~/.local/bin/opencode` 启动本仓库 `dist/cli-darwin-x64/bin/opencode`，保留外部编辑器的默认环境。
+fish 中的 `opencode`、`opencode2`、`_opencode_run` 包装函数及旧插件环境文件已移除。
+模型凭证、网关地址、模型目录 URL 和插件环境统一放在 V2 原生
+`~/.config/opencode/service-local.json` 的 `env` 中；文件权限为 `0600`，不提交其内容。
+后台服务重启时自动应用，已验证不依赖 fish 注入也能正确解析三个 Provider。
+已打开的 fish 终端清除旧函数后，直接运行 `opencode`：
 
 ```fish
-functions -e opencode2
+functions -e opencode opencode2 _opencode_run
 source ~/.config/fish/conf.d/omf.fish
+opencode
 ```
+
+也可重新打开终端；指定项目时运行 `opencode /path/to/project`。
+唯一日常配置目录为 `~/.config/opencode`，主配置 `opencode.jsonc`、TUI 配置 `cli.json`、
+slim 配置 `oh-my-opencode-slim.json` 和原生服务配置 `service-local.json`。
+旧 `~/.config/opencode2`、V1 `tui.json`、旧 SDK package/lock/node_modules、
+旧 `oh-my-openagent.json` 及相关 fish 备份已移到 `/tmp/opencode-v1-archive-20261009-143532/`。
+此前迁移备份目录也已移到该目录的 `backups/`，不再维护两套配置。
 
 主配置已转换为 V2 原生字段，关闭自动升级。保留三个 Provider 的 22、24、10 个模型、
 模型设置、variants、slim presets/fallback/council、commands、skills 和现有模型凭证。
@@ -155,7 +173,7 @@ CLI 偏好使用 `cli.json`，保留中断快捷键、统一 diff、隐藏 sideb
 原 V1 `~/.local/share/opencode/opencode.db` 未修改。先在线备份，再在独立副本运行官方
 `V1Migration.run()`，核对后装为 V2 日常库；此前 local 测试库为空，覆盖前也已备份。
 
-备份：`~/.local/share/opencode/backups/v2-adoption-20261009-135300/`。
+备份：`/tmp/opencode-v1-archive-20261009-143532/backups/v2-adoption-20261009-135300/`。
 包含迁移前主库、local 库、配置、插件、fish、旧日常可执行文件及 beta 二进制；限制当前用户访问，不提交内容。
 
 - 214 个 Session ID、标题、时间及父子关系全部一致。
@@ -198,6 +216,7 @@ macOS x64 完整构建、版本及服务命令正常；slim 的 5 个适配测�
 真实独立服务验证能力优先级/热刷新、本地 HTTP SSE 的持久 prompt、23 个工具的注册和 body/headers hook。
 编译 TUI 在 120/70 列启动、模型菜单和调整尺寸正常；日常版本、插件、56 个个人模型及历史均已核对。
 未调用付费模型，未交互验证桌面或 Web；完整边界见采用报告。
+清理旧配置后，无 fish 包装函数的 CLI/服务启动、三个 Provider 的凭证/地址解析、插件、模型和历史均复核通过。
 
 ## 低优先级待办
 

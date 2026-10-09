@@ -121,9 +121,31 @@ Web UI 已内嵌，未做浏览器/桌面交互验证；实际图片/PDF 模型�
 | 日常读取   | API 列出全部 214 个会话，最早、最新和压缩过的历史可读                                            |
 
 原 message/part 表仍完整保留在迁移副本中，没有因投影合并而删除。
-备份在 `~/.local/share/opencode/backups/v2-adoption-20261009-135300/`，含数据库、配置、插件、fish 和旧二进制。
+备份已移至 `/tmp/opencode-v1-archive-20261009-143532/backups/v2-adoption-20261009-135300/`，含数据库、配置、插件、fish 和旧二进制。
 保留备份，V2 库不交给旧版客户端使用。
 
-现在直接运行 `opencode`。已打开的 fish 可执行 `functions -e opencode2` 再
+现在直接运行 `opencode`。已打开的 fish 可执行 `functions -e opencode opencode2 _opencode_run` 再
 `source ~/.config/fish/conf.d/omf.fish`。维护直接使用 `bin/rebase-v2.sh`；
 审查提示改名为 [opencode-v2-review-prompt.md](opencode-v2-review-prompt.md)。本次不推送远端。
+
+## 配置整理与后续使用
+
+按用户要求，旧 `~/.config/opencode2`、V1 的 `tui.json`、旧 SDK 依赖及相关 fish 文件移至
+`/tmp/opencode-v1-archive-20261009-143532/`。日常只有 `~/.config/opencode` 一套 V2 配置。
+fish 中的 OpenCode 包装函数和旧插件环境文件均已移除；模型环境放在 V2 原生
+`service-local.json.env`，权限 `0600`，不提交凭证。命令入口仅保留外部编辑器的默认环境。
+服务在清除模型环境的进程中重启，三个 Provider 的 apiKey/baseURL 均按 native env 正确解析；
+56 个模型、两个插件和 214 个历史会话仍正常。原 V1 数据库及 V2 内的原始历史记录未更改。
+
+更新并构建本机最新正式 V2：
+
+```sh
+cd /Users/rambo/work_space/opencode-fork
+bin/rebase-v2.sh
+bun install --frozen-lockfile
+bun run check
+bin/build-macos.sh darwin-x64 --skip-install
+```
+
+构建完成并确认当前任务结束后执行 `opencode service restart`。
+日常启动 `opencode`，指定项目用 `opencode /path/to/project`；版本检查用 `opencode --version`。
