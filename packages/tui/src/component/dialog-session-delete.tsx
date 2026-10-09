@@ -11,7 +11,7 @@ export function DialogSessionDelete(props: { sessionID: string }) {
   const route = useRoute()
   const dialog = useDialog()
   const toast = useToast()
-  const theme = useTheme("elevated")
+  const theme = useTheme()
   const [deleting, setDeleting] = createSignal(false)
 
   async function idle(sessionID: string, active: ReadonlySet<string>): Promise<boolean> {
