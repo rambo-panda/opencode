@@ -1,12 +1,82 @@
 /** @jsxImportSource @opentui/solid */
 import type { KeymapCommand } from "@opencode/plugin/tui/context"
 import { useKeymap } from "@opentui/keymap/solid"
+import type { TextareaRenderable } from "@opentui/core"
 import { testRender } from "@opentui/solid"
 import { expect, test } from "bun:test"
 import { createSignal } from "solid-js"
 import { ConfigProvider } from "../src/config"
 import { Keymap } from "../src/context/keymap"
 import { createTuiResolvedConfig } from "./fixture/tui-runtime"
+
+test.each([
+  { name: "blank line", text: "abc\n\nbcd", row: 1, col: 0, result: "abc\nbcd" },
+  { name: "line contents", text: "abc\n\nbcd", row: 2, col: 0, result: "abc\n\n" },
+  { name: "newline at line end", text: "abc\nbcd", row: 0, col: 3, result: "abcbcd" },
+  { name: "trailing spaces and tabs", text: "abc \t\nbcd", row: 0, col: 3, result: "abcbcd" },
+  { name: "wrapped logical line", text: "abcdefghij\nbcd", row: 0, col: 4, result: "abcd\nbcd" },
+  { name: "end of buffer", text: "abc\nbcd", row: 1, col: 3, result: "abc\nbcd" },
+  { name: "empty buffer", text: "", row: 0, col: 0, result: "" },
+  { name: "rebound command", text: "abc\n\nbcd", row: 1, col: 0, result: "abc\nbcd", key: "r" },
+])("input delete-to-line-end handles $name with undo", async (input) => {
+  let editor!: TextareaRenderable
+  const app = await testRender(
+    () => (
+      <ConfigProvider
+        config={createTuiResolvedConfig({
+          keybinds: { "input.delete.to.line.end": `ctrl+${input.key ?? "k"}`, "input.undo": "ctrl+z" },
+        })}
+      >
+        <Keymap.Provider>
+          <textarea ref={(value) => (editor = value)} focused initialValue={input.text} width={5} height={5} />
+        </Keymap.Provider>
+      </ConfigProvider>
+    ),
+    { kittyKeyboard: true },
+  )
+  try {
+    await app.renderOnce()
+    editor.setCursor(input.row, input.col)
+    app.mockInput.pressKey(input.key ?? "k", { ctrl: true })
+    expect(editor.plainText).toBe(input.result)
+    app.mockInput.pressKey("z", { ctrl: true })
+    expect(editor.plainText).toBe(input.text)
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("consecutive Ctrl+K deletes text then newline and keeps attachment marks undoable", async () => {
+  let editor!: TextareaRenderable
+  const app = await testRender(
+    () => (
+      <ConfigProvider config={createTuiResolvedConfig({ keybinds: { "input.undo": "ctrl+z" } })}>
+        <Keymap.Provider>
+          <textarea ref={(value) => (editor = value)} focused initialValue={"abc\ntext\nbcd"} />
+        </Keymap.Provider>
+      </ConfigProvider>
+    ),
+    { kittyKeyboard: true },
+  )
+  try {
+    await app.renderOnce()
+    const mark = editor.extmarks.create({ start: 9, end: 12, virtual: true })
+    editor.setCursor(1, 0)
+    app.mockInput.pressKey("k", { ctrl: true })
+    expect(editor.plainText).toBe("abc\n\nbcd")
+    app.mockInput.pressKey("k", { ctrl: true })
+    expect(editor.plainText).toBe("abc\nbcd")
+    expect(editor.extmarks.get(mark)).toMatchObject({ start: 4, end: 7 })
+    app.mockInput.pressKey("z", { ctrl: true })
+    expect(editor.plainText).toBe("abc\n\nbcd")
+    expect(editor.extmarks.get(mark)).toMatchObject({ start: 5, end: 8 })
+    app.mockInput.pressKey("z", { ctrl: true })
+    expect(editor.plainText).toBe("abc\ntext\nbcd")
+    expect(editor.extmarks.get(mark)).toMatchObject({ start: 9, end: 12 })
+  } finally {
+    app.renderer.destroy()
+  }
+})
 
 test("legacy page key aliases compile as page keys", async () => {
   let read = () => ({ up: "", down: "" })

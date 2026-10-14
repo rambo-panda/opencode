@@ -94,6 +94,27 @@ function Provider(props: ParentProps<{ config?: KeymapConfig }>) {
         const editor = renderer.currentFocusedEditor
         return editor instanceof TextareaRenderable && !(editor instanceof InputRenderable)
       },
+      commands: [
+        {
+          name: "input.delete.to.line.end",
+          desc: TuiKeybind.Descriptions["input.delete.to.line.end"],
+          category: "Delete",
+          run() {
+            const editor = renderer.currentFocusedEditor
+            if (!(editor instanceof TextareaRenderable)) return false
+            const cursor = editor.logicalCursor
+            const eol = editor.editBuffer.getEOL()
+            // Emacs kill-line removes the newline when only spaces or tabs remain.
+            if (
+              cursor.row === editor.lineCount - 1 ||
+              /[^ \t]/.test(editor.getTextRangeByCoords(cursor.row, cursor.col, eol.row, eol.col))
+            )
+              return editor.deleteToLineEnd()
+            editor.deleteRange(cursor.row, cursor.col, cursor.row + 1, 0)
+            return true
+          },
+        },
+      ],
       bindings: [
         "input.move.left",
         "input.move.right",

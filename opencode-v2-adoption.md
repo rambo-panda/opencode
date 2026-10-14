@@ -149,3 +149,135 @@ bin/build-macos.sh darwin-x64 --skip-install
 
 构建完成并确认当前任务结束后执行 `opencode service restart`。
 日常启动 `opencode`，指定项目用 `opencode /path/to/project`；版本检查用 `opencode --version`。
+
+## 补充核对：界面、skills 与完整个人差异
+
+2026-10-09 再次运行 `bin/rebase-v2.sh`：官方稳定版仍为 2.0.26，没有进行新的 rebase。
+比较快照为个人 HEAD `46d0d8b962` 对正式标签 `v2.0.26`；本轮只修改本机 agent 配置及补充文档。
+
+### 实际界面与本机配置
+
+| 项目 | 核对及处理结果 |
+| --- | --- |
+| 空白首页没有 `/delete` | 首页没有当前会话，命令在 Session 路由注册；用户已确认历史会话中存在。 |
+| 历史会话 `/delete` | 日常编译客户端实测补全、数字确认框和 `1` 保留正常；未删除用户历史。15 项个人 TUI 回归通过。 |
+| slim 专家不在 `/agents` | 原来六个专家均为 `subagent`，官方选择器只接受主 agent 或 `all`；并非插件未加载或模型丢失。 |
+| 直接使用专家 | 原生 `agents` 对 oracle/librarian/explorer/designer/fixer/council 仅配置 `mode: "all"`；同时支持主会话选择和子任务委派。 |
+| 配置保全与真实界面 | 六个 agent 除 mode 外的全部 API 字段哈希一致；编译 TUI 实测九个可选 agent、直接选择 Oracle、六个 `@agent` 补全及 `/preset` 入口正常。 |
+| skills 目录为空 | slim 3 在 V2 上注册插件包内置技能后，自动清理旧 manifest 管理的磁盘副本；OpenCode V2 仍加载用户自建的 skill/skills 目录。 |
+| skills 是否丢失 | 八个内置技能均已从 3.0.3 包加载；旧受 Git 跟踪的 16 个文件与旧 2.2.18 包及归档副本逐字节一致。五个 `~/.agents/skills` 技能也在。 |
+| 日常历史与任务 | 补测结束 API 仍为 214 个会话，活动会话为零；没有调用外部付费模型或重启服务。 |
+
+本机 agent 覆盖的结构是：
+
+```jsonc
+{
+  "agents": {
+    "oracle": { "mode": "all" },
+    "librarian": { "mode": "all" },
+    "explorer": { "mode": "all" },
+    "designer": { "mode": "all" },
+    "fixer": { "mode": "all" },
+    "council": { "mode": "all" }
+  }
+}
+```
+
+原有 explore/general 的 disabled 配置保留；模型、variant、提示词继续由 slim preset 提供。
+内置 skills 为 `simplify`、`codemap`、`clonedeps`、`deepwork`、`verification-planning`、`reflect`、
+`oh-my-opencode-slim`、`worktrees`。自定义技能仍可放到 `~/.config/opencode/skills/<name>/SKILL.md`。
+插件清理及注册的源码证据：[注册入口](https://github.com/alvinunreal/oh-my-opencode-slim/blob/4733ed77092fa0b0368257aa76d13167dcc7c854/src/v2/setup.ts#L2451)、
+[受管副本清理](https://github.com/alvinunreal/oh-my-opencode-slim/blob/4733ed77092fa0b0368257aa76d13167dcc7c854/src/cli/custom-skills.ts#L80)。
+没有恢复旧副本覆盖新包；配置仓库中 16 个旧副本的删除状态来自插件清理。
+
+### 对官方稳定版的全部差异
+
+该 HEAD 对 `v2.0.26` 共 **28 个文件，+1252 / -104**：运行代码 11 个文件（+180 / -87），
+测试 8 个文件（+474 / -17），文档和个人维护脚本 9 个文件（+598 / -0）。
+
+| 运行差异 | 具体保留行为 | 文件 |
+| --- | --- | --- |
+| Provider 多账号 | legacy id 迁为 canonical；完整模型目录继承；清除源账号三类凭证；保持分层显式名称。 | core/config/normalize.ts、core/config/plugin/provider.ts、core/v1/config/migrate.ts |
+| 模型选择器 | 没有 Integration 连接时仍显示 Provider 名称，并按 ID/显示名搜索。 | tui/component/dialog-model.tsx |
+| 中断后续执行 | 中断后继续已接收 FIFO；没有待处理输入时不重试刚中断的消息；Protocol 改动仅为说明文字。 | core/session/execution.ts、protocol/groups/session.ts |
+| 输入与中断提示 | Enter 复用官方 steer；运行时 Tab FIFO、补全时仍补全；单次 Ctrl+C/Esc 中断保留草稿；红色中断行。 | tui/component/prompt/index.tsx、tui/config/keybind.ts、tui/routes/session/index.tsx |
+| `/delete` | 当前会话的 1/2 确认；拒删活动会话、活动子任务和待处理 inbox；成功返回首页。 | tui/component/dialog-session-delete.tsx、tui/routes/session/index.tsx |
+| 构建参数 | 保留多目标 `--only`；官方 `--outdir` 上增加禁止祖先目录及先验证目标再清空目录的检查；统一命令名。 | cli/script/build.ts |
+
+上表省略了共同前缀 `packages/<包>/src/`；构建文件实际为 `packages/cli/script/build.ts`。
+官方历史 [PR #39750](https://github.com/anomalyco/opencode/pull/39750) 曾实现 `/delete`，
+但该命令不在当前稳定源码及最新开发源码中；个人补丁仍有实际差异，不能依据旧 PR 合并状态删除。
+
+八个测试文件：
+
+```text
+packages/core/test/config/normalization.test.ts
+packages/core/test/config/provider.test.ts
+packages/core/test/session-execution.test.ts
+packages/core/test/session-model-request-hooks.test.ts
+packages/tui/test/cli/tui/prompt-interrupt-status.test.tsx
+packages/tui/test/config-v2.test.tsx
+packages/tui/test/model-alias.test.tsx
+packages/tui/test/session-personal.test.tsx
+```
+
+九个文档/脚本文件：
+
+```text
+AGENTS.md
+PERSONAL.md
+bin/build-macos-arm64.sh
+bin/build-macos-x64.sh
+bin/build-macos.sh
+bin/plugins/inherit-models.js
+bin/rebase-v2.sh
+opencode-v2-adoption.md
+opencode-v2-review-prompt.md
+```
+
+本机配置、fish 和数据库的迁移不属于 Git 补丁；其实际结果在前文记录。
+本轮补齐的原生 agent mode 覆盖也仅在本机配置中，不需要修改 fork 的选择器或第三方插件。
+
+### 旧个人改动：保留、替代与未迁入
+
+`git range-diff e5ecb5719d..personal-beta v2.0.26..46d0d8b962` 确认旧 beta 的 12 个个人提交全部保留，
+其中主题、Provider 测试和构建上下文做了必要适配；正式采用及配置整理另有两个提交。
+
+| 旧改动 | 当前结果 |
+| --- | --- |
+| Provider 别名、默认名称、构建参数 | 保留，并适配 V2 原生字段与包目录。 |
+| `llm.request.before` 内核补丁 | 改用官方 `http.request`，保留 body/headers 回归；旧接口名不再提供。 |
+| 集中模型输入能力映射 | 迁到原生 `ctx.model.transform`；维护文件为 `bin/plugins/inherit-models.js`，已部署全局副本。 |
+| models.dev DNS 绕过和构建时抓取目录 | 没有照搬。正式 V2 在 core/models-dev.ts 内嵌受版本控制的 snapshot，构建不再依赖旧在线抓取步骤。 |
+| 构建时同步 Git/beta 版本推导/opencode2 名称 | 改为独立 `rebase-v2.sh`、最近稳定标签和统一 opencode；local 数据渠道保留。 |
+| 旧 V1 曾加入后回退的鼠标滚动、TUI 执行、delete 提交 | 不能按历史提交数认定有效改动。当前个人 V2 明确保留上述输入/中断/delete；滚动沿用官方实现。 |
+| `debug_timer_cost` 的额外 logger/启动耗时补丁 | 在另一个保留分支，未合入选定的 personal-beta，因此未迁入 personal-v2；不是本次 rebase 漏掉的提交。 |
+| 原生专家 agent 的直接选择覆盖 | 本轮补齐六个 mode: all。 |
+| ephemeral | 一直仅为待办，当前未实现。 |
+
+### 对最新远程开发分支的区别
+
+本轮 fetch 的官方 `upstream/v2` 为 `ee0e614221`；共同发布源码祖先为 `5e73d5cb1f`。
+从该源码到开发 tip 有 23 个提交（含一个同步版本提交）；标签与开发分支的完整树比较为
+152 个文件、+2988 / -2612，不能将这批官方未发布变化算成个人补丁。
+
+这些变化主要涉及子任务通知的 Location 淘汰恢复、Vertex Mistral/思考 variants、worktree 工具迁入 Core、
+Web PWA、timeline 文件链接/完整工具错误、桌面冷启动及浏览器面板。
+TUI 执行错误行的加入和随后回退须看最终源码；当前个人字段、agent 过滤和 delete 入口没有被这批变化完整覆盖。
+正式使用仍以稳定版为基线，没有追入这批未发布代码。
+
+用户远程 `origin` 指向个人 fork，现有 `origin/dev` 是旧 V1 引用；官方 V2 比较应使用 `upstream/v2` 或正式标签，
+而不是把 V1/V2 整体目录迁移误列成个人差异。无关工作区文件 bak/diff.md/v1_v2.md 未修改。
+
+复查命令：
+
+```sh
+git diff --stat v2.0.26 HEAD
+git diff v2.0.26 HEAD -- packages
+git range-diff e5ecb5719d..personal-beta v2.0.26..46d0d8b962
+git log --oneline 5e73d5cb1f..upstream/v2
+```
+
+核对快照的完整补丁及逐文件统计保存在 `/tmp/opencode-v2-ui-audit/`：
+`personal-v2-v2.0.26.patch`（全部 28 个文件）、`personal-v2-runtime.patch`（运行代码）、
+`personal-v2-v2.0.26-files.txt`、`beta-v2-range-diff.txt`、`official-unreleased.txt`。

@@ -197,13 +197,43 @@ Server 和 TUI 均固定为 `oh-my-opencode-slim@3.0.3`，真实 2.0.26 服务�
 不将 active 或 mock 测试通过解释为全功能兼容。未修改第三方源码，未用付费模型验证 fallback/council 长任务。
 证据见 [采用报告](opencode-v2-adoption.md)。
 
+2026-10-09 补齐直接使用专家 agent 的配置：在 `~/.config/opencode/opencode.jsonc` 的原生 `agents` 中，
+为 `oracle`、`librarian`、`explorer`、`designer`、`fixer`、`council` 设置 `mode: "all"`。
+这些 agent 同时出现在 `/agents` 和 `@agent` 补全中；`orchestrator` 保持主 agent，内部 councillor 保持隐藏。
+只覆盖 mode，服务 API 已逐项验证其余 agent 字段（包括模型、variant、提示词与权限）完全一致。
+配置已热加载；编译 TUI 实测九个可选 agent、直接选择 Oracle、六个专家的 `@` 补全及 `/preset` 入口正常。
+
+slim 3 在 V2 上从插件包通过 `ctx.skill.transform` 注册八个内置技能，不再复制到全局 skills 目录。
+注册后插件的 `removeLegacySkillSyncState()` 会依据旧 manifest 清理受管副本；自定义目录仍由官方加载。
+因此本机 `~/.config/opencode/skills` 为空是插件的清理结果，不是 V2 要求清空用户技能。
+已核对八个技能仍在真实服务中加载，资源路径指向 3.0.3 包；原受 Git 跟踪的 16 个文件与
+旧 2.2.18 发布包、归档副本逐字节一致，未发现这些文件包含个人定制。`~/.agents/skills` 的五个技能仍加载。
+Git 中旧副本显示删除是插件移除磁盘副本的结果；无需复制回来覆盖新版本。
+
 ## TUI 个人习惯
 
 - Enter steer；运行时 Tab FIFO，补全时仍为 Tab 补全。
 - 单 Ctrl+C/Esc 中断，保留草稿，继续已接收 FIFO；无后续输入时不重试刚中断的消息。
 - 红色 `■ Conversation interrupted`；去掉官方重复 inline 提示。
-- `/delete` 用 `1` 保留、`2` 删除退出；活动或待处理工作拒删。
+- 打开会话后 `/delete` 用 `1` 保留、`2` 删除退出；活动或待处理工作拒删。空白首页没有当前会话，故不注册此命令。个人 `cli.json` 将 `session.delete` 设为 `"none"`，取消 Ctrl+D 删除会话。
 - 源码用官方 `@文件名`；图片/PDF 路径采用官方附件机制。
+
+2026-10-09 在 `~/.config/opencode/cli.json` 配置 Emacs 输入习惯：Ctrl+B/F 左右移动、
+Ctrl+P/N 上下移动、Ctrl+A/E 行首/行尾、Ctrl+D 删除光标处字符、Ctrl+H 退格、
+Ctrl+K/U 删除到行尾/行首，Alt+B/F 按词移动、Alt+D 向后删词、Ctrl+W 向前删词。
+保留方向键、Backspace 和 Delete；`app.exit` 移除 Ctrl+D，保留 Ctrl+C 与 Ctrl+X Q。
+命令面板改为 Ctrl+X P，后台化阻塞工具改为 Ctrl+X Z，避免占用 Ctrl+P 与 Ctrl+B。
+这里的 Ctrl+X 是默认 leader，组合键依次按下；对话框内的导航及其他局部操作继续按其原生绑定处理。
+`cli.json` 是本机全局 CLI/TUI 偏好；`opencode.jsonc` 管理模型、Provider、agent、权限等服务/项目配置。
+重新打开 TUI 以应用整套输入绑定，无需重建或重启后台服务。
+
+2026-10-10 在公共输入命令层补齐 Ctrl+K 的 Emacs 删行行为：光标后有正文时只删到逻辑行尾，
+空行、行尾或仅剩空格/Tab 时删除到下一行开头；末尾没有换行时保持原来的删除行为。
+完整 TUI、mini 与对话框共用此命令，保留自定义绑定及原生撤销；需要重建 TUI 才能应用。
+本轮仅修 Ctrl+K，不新增 kill ring 或 Ctrl+Y；上游 Ctrl+Y 工作见
+[OpenTUI PR #1277](https://github.com/anomalyco/opentui/pull/1277)。
+新增 9 项回归，相关 25 项测试及根 `bun run check` 通过；macOS x64 编译 TUI 已实测空行删除，
+本机日常可执行文件已更新，确认无运行会话后重启服务。
 
 保留官方持久化 inbox、调度器、客户端提交及配置体系。
 本次 rebase 适配 theme 的 `base/muted` 与无旧参数的 `useTheme()`。
@@ -217,6 +247,9 @@ macOS x64 完整构建、版本及服务命令正常；slim 的 5 个适配测�
 编译 TUI 在 120/70 列启动、模型菜单和调整尺寸正常；日常版本、插件、56 个个人模型及历史均已核对。
 未调用付费模型，未交互验证桌面或 Web；完整边界见采用报告。
 清理旧配置后，无 fish 包装函数的 CLI/服务启动、三个 Provider 的凭证/地址解析、插件、模型和历史均复核通过。
+补充核对：日常编译客户端打开历史会话后 `/delete` 补全和确认框正常，选择 `1` 保留成功；
+`session-personal.test.tsx` 的 15 项回归重新运行通过，含数字确认和活动/子任务/inbox 拒删。
+最新稳定版仍为 2.0.26，已通过 `rebase-v2.sh` 复核；个人差异、旧版本替代项及未发布开发进度见采用报告的补充清单。
 
 ## 低优先级待办
 
