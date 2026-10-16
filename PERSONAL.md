@@ -1,11 +1,18 @@
 # Personal V2
 
-个人分支：`personal-v2`，基线为官方稳定标签 `v2.0.26`（`9b4ec5714d`），发布源码 SHA 为 `5e73d5cb1f`。
+个人分支：`personal-v2`，当前源码基线为官方稳定标签 `v2.0.30`（`f16ef9ad88`）。
+2026-10-09 初次迁移基线为 `v2.0.26`（`9b4ec5714d`），当时的发布源码 SHA 为 `5e73d5cb1f`。
 2026-10-09 从 `personal-beta`（`db8a026f5a`）迁移，12 个个人提交全部保留；原分支留作备份。
 日常只使用正式 V2 的 `opencode`，旧版本仅作归档，不再维护 V1/beta 日常入口。
 
 本文件记录个人修改及维护背景；开始工作前阅读，重要行为、配置和维护流程变化必须同步更新。
 详细采用审查见 [opencode-v2-adoption.md](opencode-v2-adoption.md)。
+
+2026-10-16 将 15 个个人提交从 `v2.0.28` 完整重放到 `v2.0.30`，原分支保存在
+`v2-backup-20261016142157`。冲突处理中保留 Provider 别名的配置 key 命名和跨配置层显式名称，
+保留会话删除及 Ctrl+C/Esc 中断，同时适配官方已移除的会话分享命令。
+客户端生成无差异；相关 Core 117 项、TUI 48 项测试及根 `bun run check` 通过。
+本次仅同步源码；本机 `opencode --version` 仍为 `2.0.28`，构建与服务重启按下述流程进行。
 
 ## 跟随官方稳定发布
 
@@ -120,7 +127,7 @@ ARM Mac 使用 `darwin-arm64`；只需重建当前基线时可省略 rebase。
 `--skip-web-ui` 跳过 Web UI，`--skip-install` 在依赖就绪时跳过跨平台依赖安装。
 
 ```sh
-OPENCODE_CHANNEL=local OPENCODE_VERSION=2.0.26 bun run packages/cli/script/build.ts \
+OPENCODE_CHANNEL=local OPENCODE_VERSION=2.0.30 bun run packages/cli/script/build.ts \
   --only=darwin-arm64,darwin-x64 --outdir=/tmp/opencode-build
 ```
 
@@ -156,7 +163,7 @@ CLI 偏好使用 `cli.json`，保留中断快捷键、统一 diff、隐藏 sideb
 个人 `local` 渠道使用 `~/.local/share/opencode/opencode-local.db`、
 `~/.local/state/opencode/service-local.json` 和 `~/.config/opencode/service-local.json`。
 日常函数不设置 `OPENCODE_DB`。该渠道保留个人构建的独立服务、数据库和日志。
-当前后台服务版本为 `2.0.26`，地址通过 `opencode service status` 获取。
+2026-10-09 验证时后台服务版本为 `2.0.26`；地址通过 `opencode service status` 获取。
 同一正式版本下重新构建个人代码后，也须在任务结束时重启服务；不要在每次启动时自动重启。
 服务连接密码由官方生成，与模型 API key 无关，不应放入代码或提交。
 
@@ -249,7 +256,8 @@ macOS x64 完整构建、版本及服务命令正常；slim 的 5 个适配测�
 清理旧配置后，无 fish 包装函数的 CLI/服务启动、三个 Provider 的凭证/地址解析、插件、模型和历史均复核通过。
 补充核对：日常编译客户端打开历史会话后 `/delete` 补全和确认框正常，选择 `1` 保留成功；
 `session-personal.test.tsx` 的 15 项回归重新运行通过，含数字确认和活动/子任务/inbox 拒删。
-最新稳定版仍为 2.0.26，已通过 `rebase-v2.sh` 复核；个人差异、旧版本替代项及未发布开发进度见采用报告的补充清单。
+2026-10-09 时最新稳定版仍为 2.0.26，已通过 `rebase-v2.sh` 复核；
+当时的个人差异、旧版本替代项及未发布开发进度见采用报告的补充清单。
 
 ## 低优先级待办
 
