@@ -58,3 +58,6 @@ if ! git rebase --onto "$TARGET" "$BASE"; then
   exit 1
 fi
 echo "Rebased $BRANCH onto stable V2 $VERSION. Nothing was pushed."
+
+bun install --frozen-lockfile --os=darwin --cpu='*'
+bun run check

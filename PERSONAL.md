@@ -35,6 +35,7 @@ bin/rebase-v2.sh <old-stable-commit>
 冲突解决后运行 `git rebase --continue`，也可 `git rebase --abort`。
 正式版本同步提交不合回开发分支，基线取 HEAD 最近的稳定 `v2.*` 祖先标签，不能用开发分支 merge-base 代替。
 `rebase-beta.sh` 已删除，直接使用 V2 脚本；构建不自动同步 Git。
+`rebase-v2.sh` 完成 rebase 后以 Darwin 全架构安装锁文件依赖，保留 macOS arm64/x64 两种 PTY 二进制，供交叉构建使用。
 每次更新核对个人补丁是否已被官方完整覆盖。定期审查使用 [opencode-v2-review-prompt.md](opencode-v2-review-prompt.md)。
 
 ## Provider 多账号
@@ -124,7 +125,6 @@ ARM Mac 使用 `darwin-arm64`；只需重建当前基线时可省略 rebase。
 产物为 `dist/cli-darwin-<架构>/bin/opencode`，默认包含 Web UI。命令名统一为 `opencode`，
 保留个人 `local` 服务渠道；版本从 HEAD 最近的稳定 V2 祖先标签推导，不再使用 beta 工作流编号。
 脚本使用仓库要求的 Bun；版本不匹配时通过 npm 执行对应版本。
-`--skip-web-ui` 跳过 Web UI，`--skip-install` 在依赖就绪时跳过跨平台依赖安装。
 
 ```sh
 OPENCODE_CHANNEL=local OPENCODE_VERSION=2.0.30 bun run packages/cli/script/build.ts \
@@ -258,7 +258,3 @@ macOS x64 完整构建、版本及服务命令正常；slim 的 5 个适配测�
 `session-personal.test.tsx` 的 15 项回归重新运行通过，含数字确认和活动/子任务/inbox 拒删。
 2026-10-09 时最新稳定版仍为 2.0.26，已通过 `rebase-v2.sh` 复核；
 当时的个人差异、旧版本替代项及未发布开发进度见采用报告的补充清单。
-
-## 低优先级待办
-
-- [ ] 类似 Codex `ephemeral` 的临时会话；先确认持久化边界，本次仅记录。
