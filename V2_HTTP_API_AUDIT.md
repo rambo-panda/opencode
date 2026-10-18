@@ -1,12 +1,13 @@
-# V2 HTTP API audit checklist
+# Historical V2 HTTP API design audit
 
-**Source:** `packages/protocol/openapi.json`  
-**Current endpoint count:** 139
-**Last regenerated:** 2026-09-13
+**Source snapshot:** `packages/protocol/openapi.json`, regenerated 2026-09-13
 
-## How to use this checklist
+**Review outcome:** 139 retained operations across ten groups; the checklist also records merged and removed candidates.
+**Status:** Complete historical review. This file records the decisions made against that snapshot; it is not the current API inventory. The current contract is defined by `packages/protocol/openapi.json` (143 HTTP operations as of 2026-10-18).
 
-Review endpoints in document order. For each endpoint, select one disposition and capture rationale or follow-up work in Notes. Mark **Reviewed** only after the disposition is agreed.
+## Original review method
+
+The audit reviewed endpoints in document order. Each endpoint received a disposition and a rationale or follow-up note; an item was marked **Reviewed** after its disposition was agreed.
 
 ### Review criteria
 
@@ -26,7 +27,7 @@ Review endpoints in document order. For each endpoint, select one disposition an
 - **Remove:** exclude from the official V2 API
 - **Experimental-only:** retain outside the stable API commitment
 
-## Progress
+## Audit completion
 
 - [x] Group 1: Foundation and placement (4)
 - [x] Group 2: Configuration and capability catalogs (16)
