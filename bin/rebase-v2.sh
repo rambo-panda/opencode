@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export http_proxy=http://127.0.0.1:7892
-export https_proxy=http://127.0.0.1:7892
+export http_proxy=http://127.0.0.1:7897
+export https_proxy=http://127.0.0.1:7897
 
 if [ "${1:-}" = "--help" ]; then
   echo "Usage: $0 [base-commit]"

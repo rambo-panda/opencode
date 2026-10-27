@@ -12,6 +12,13 @@
 以上状态以 2026-10-18 的官方仓库页面为准；开始实现前重新核对 Issue/PR 状态及正式 V2 发布内容。
 
 
+## 后台子任务状态可见性（核查于 2026-10-27）
+
+- [ ] 跟进 [Issue #57097](https://github.com/anomalyco/opencode/issues/57097)（OPEN）：父会话停止输出、父工具调用已完成，不代表后台子会话已经完成；需要更持续、明显的子任务状态提示。按个人规则仅记录并等待官方，不自行实现。
+- 本地已有原生 `N subagents` 计数：`packages/tui/src/feature-plugins/prompt/footer.tsx` 按子会话自身的 running 状态统计，即使父会话 idle 也显示；现有 `prompt-footer.test.tsx` 覆盖该场景。本次仅核查源码与测试定义，未进行运行时复现。问题应描述为可发现性不足，而非完全没有子任务状态功能。
+- 当前 `session.sidebar=hide` 隐藏 slim 侧栏，`animations=false` 关闭动画，但两者不直接隐藏原生计数。可点击 `N subagents` 或通过命令面板的 `Toggle subagent picker` 查看子任务；本次未改配置。
+- 相关但不同的问题：[Issue #48826](https://github.com/anomalyco/opencode/issues/48826)（OPEN）与 [PR #57418](https://github.com/anomalyco/opencode/pull/57418)（OPEN、未合并）处理后台工作尚未结束却提前报告完成，不等同于常驻 UI 提示修复。状态以核查日为准，后续重新核对。
+
 ## 备忘录
 1. slim 默认已把 `oracle` 注册为 `subagent`。因此如果不在jsonc中明确标注 `"oracle": { "mode": "all" }` 正常使用如下
   - 可以用 `@oracle` 指定它作为子 agent。
