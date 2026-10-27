@@ -7,7 +7,7 @@
 ## V2 开发与稳定版维护
 
 - 开发分支和 worktree 遵循根目录 [AGENTS.md](AGENTS.md) 的 `dev` 分支规则。`bin/rebase-v2.sh` 用于有意更新 `personal-v2` 的稳定版基线，不用于日常 V2 开发任务。
-- 修改个人分支行为前，检查官方 Issue/PR（包括关闭和已合并记录）及 `upstream/v2`。发现相同或实质重叠的工作时，先提供链接并讨论是否继续。
+- 开发功能或修改个人分支行为前，先检查官方对应 Issue/PR（包括 open、closed、merged）及 `upstream/v2`，向用户反馈链接和状态；未找到也需反馈。若有对应 open Issue，仅本地记录并等待官方，不自行设计或实现，除非用户明确改变决定。其他状态或未找到时，先反馈，再与用户讨论是否自行设计本地方案，不能默认直接实现。
 - 有意同步最新稳定版时运行 `bin/rebase-v2.sh`。它读取官方更新 API、fetch 稳定标签和 `upstream/v2`，创建 `v2-backup-<时间>` 后 rebase；不 push，也不自动丢弃冲突提交。冲突后继续或 abort。
 - 2026-10-27 从 `v2.0.32` rebase 到 `v2.1.4`，保留全部 18 个个人提交。模型选择器保留上游新样式、免费模型分组和个人 Provider 名称/搜索补丁；构建保留目录保护与上游 `--libc="*"` 安装参数。
 - 本机 V2 个人版更新流程：
@@ -88,10 +88,16 @@ export default Plugin.define({
 
 个人配置的 Server 和 TUI 使用同一版 `oh-my-opencode-slim@3.0.3`。上次兼容性审查针对宿主 V2.0.26（2026-10-09），更换插件或宿主版本后应重新核对。已知限制包括：Interview 监听 `session.next.text.*` 而宿主发 `session.text.*`；`/reflect --sessions` 依赖旧历史结构；插件 context 未暴露完整 Session list/remove 和 form reply。不要把插件 active 或 mock 测试通过当成完整兼容证明。
 
+## Session 保留
+
+核查日期：2026-10-27。当前官方 V2 和本地分支均不按会话年龄或数量自动删除普通 Session，无需额外配置，由用户自行管理。上下文压缩不删除原消息，但工具/Shell 外置的完整输出会按 7 天保留期清理，Shell 另有数量淘汰；这不代表所有相关文件永久保存。本地 slim 的 `pruneEvictedSessions` 默认 `false`，当前无覆盖。
+
+复核参考：[官方压缩限制](https://opencode.ai/v2/docs/compaction/#limits)、`packages/core/src/session.ts`、`packages/core/src/tool-output.ts`、`packages/core/src/shell.ts`。
+
 ## TUI 个人行为
 
 - Enter steer；运行时 Tab FIFO，补全时 Tab 仍用于补全。
 - Ctrl+C/Esc 单次中断，保留草稿并继续已接收 FIFO；没有后续输入时不重试刚中断的消息。中断显示 `■ Conversation interrupted`，移除重复 inline 提示。
-- `/delete` 用 `1` 保留、`2` 删除退出；活动会话、活动子任务或有待处理 inbox 时拒绝删除。空白首页没有当前会话，不注册此命令。个人 `cli.json` 将 `session.delete` 设为 `none`，取消 Ctrl+D 删除会话。
+- 个人 `/delete` 复用官方 `session.delete` 命令 ID 和删除 API，确认框用 `1` 保留、`2` 删除退出；活动会话、活动子任务或有待处理 inbox 时拒绝删除。空白首页没有当前会话，不注册此命令。全局 `cli.json` 将 `session.delete` 设为 `<leader>d`（Ctrl+X 松开再 D）；Sessions 列表共用此绑定，但使用两次快捷键确认，不经过个人保护框。Ctrl+D 仍只用于字符删除，`app.exit` 绑定保持不变；配置热加载，无需重启。
 - 保留官方 `@文件名` 和图片/PDF 附件机制。
 - Ctrl+K：光标后有正文时删除到逻辑行尾；空行、行尾或只剩空格/Tab 时删除到下一行开头；末尾没有换行时保留原删除行为。完整 TUI、mini 和对话框共用此命令，原生撤销继续有效。
