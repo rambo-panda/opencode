@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export http_proxy=http://127.0.0.1:7892
+export https_proxy=http://127.0.0.1:7892
+
 if [ "${1:-}" = "--help" ]; then
   echo "Usage: $0 [base-commit]"
   echo "Fetch the latest official stable V2 release, back up the current branch, and rebase personal commits."
