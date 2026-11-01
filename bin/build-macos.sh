@@ -55,5 +55,5 @@ export OPENCODE_VERSION
 
 # The local channel keeps personal service and database state independent.
 # This command does not fetch Git branches, rebase, install the app, or change configuration.
-"${BUN[@]}" run ./packages/cli/script/build.ts --target="opencode-${TARGET}" --outdir="$OUTDIR" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"}
+OPENCODE_TARGET="$TARGET" "${BUN[@]}" run ./packages/cli/script/build.ts --outdir="$OUTDIR" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"}
 echo "Built: ${OUTDIR}/cli-${TARGET}/bin/opencode"

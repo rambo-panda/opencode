@@ -28,3 +28,10 @@
   `mode: "all"` 只是额外允许你在 `/agents` 中把 Oracle 选为当前会话的主 agent，同时保留子 agent 能力。
 
   因此，如果你只需要子 agent 用法，可以删除这段覆盖；slim preset 中的模型、提示词等配置仍然生效。
+
+## Node.js 构建与代理行为（核查于 2026-11-01）
+
+- [ ] 跟进 Node.js 构建及 macOS x64 支持；切换构建后重新验证模型请求和代理行为，不因仓库支持 Node 就认定本机运行时已经切换。
+- 当前源码保留两条构建路线：`packages/cli/script/build.ts` 使用 Bun 编译；`packages/cli/script/build-node.ts` 提供 Node.js 构建，固定 Node 版本为 `26.4.0`。
+- 当前 `build-node.ts` 明确拒绝 macOS x64 的 SEA 独立可执行文件构建（提示 `Node 26.4 SEA does not support macOS x64`）；此限制不等于所有 Node.js 运行方式均不支持 macOS x64。
+  本次排查在服务重启前观察到，本机运行的是 2026-11-01 生成的 `dist/cli-darwin-x64/bin/opencode`，内嵌 Bun，并非 Node 构建。

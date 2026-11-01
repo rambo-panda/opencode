@@ -19,6 +19,7 @@ const location = { directory, project: { id: "project", directory, canonical: di
 
 async function fixture(state: string, mode: string) {
   const session = { ...base, id: `ses_${crypto.randomUUID()}` }
+  const child = { ...session, id: "ses_child", parentID: session.id }
   const mutations: { type: string; body: unknown }[] = []
   const running = ["ctrl-c", "ctrl-c-empty", "escape", "queue", "steer", "autocomplete", "active"].includes(mode)
   const setup = await createAppFixture({
@@ -51,7 +52,7 @@ async function fixture(state: string, mode: string) {
             ? ["child", "child-page"].includes(mode) &&
               (mode !== "child-page" || url.searchParams.has("cursor")) &&
               url.searchParams.get("parentID") === session.id
-              ? [{ ...session, id: "ses_child", parentID: session.id }]
+              ? [child]
               : []
             : [session],
           cursor:
@@ -59,6 +60,12 @@ async function fixture(state: string, mode: string) {
               ? { next: "page2" }
               : {},
         })
+      if (
+        url.pathname === `/api/session/${child.id}` &&
+        request.method === "GET" &&
+        ["child", "child-page"].includes(mode)
+      )
+        return json({ data: child })
       if (url.pathname === `/api/session/${session.id}`) {
         if (request.method !== "DELETE") return json({ data: session })
         mutations.push({ type: "delete", body: undefined })

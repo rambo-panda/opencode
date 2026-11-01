@@ -2364,6 +2364,60 @@ describe("OpencodePlugin with a Console config", () => {
     ),
   )
 
+  it.effect("preserves the Console provider name across two unnamed local config layers", () =>
+    Effect.gen(function* () {
+      const credentials = yield* Credential.Service
+      const providers = yield* Provider.Service
+      const models = yield* Model.Service
+      const config = yield* Config.Test
+      yield* config.setEntries([
+        new Document({
+          type: "document",
+          info: Schema.decodeUnknownSync(Info)({
+            providers: { remote: { models: { chat: { limit: { output: 4_000 } } } } },
+          }),
+        }),
+        new Document({
+          type: "document",
+          info: Schema.decodeUnknownSync(Info)({
+            providers: { remote: { headers: { "x-org-id": "local" } } },
+          }),
+        }),
+      ])
+      yield* credentials.create({
+        integrationID: Integration.ID.make("opencode"),
+        value: Credential.Key.make({ type: "key", key: "secret", metadata: { server: "https://console.example" } }),
+      })
+      const plugin = yield* Plugin.Service
+      const host = yield* PluginHost.make(plugin)
+      yield* OpencodePlugin.effect(host).pipe(
+        inProcess({
+          fetch: () =>
+            Response.json({
+              $schema,
+              providers: {
+                remote: {
+                  name: "Console Account",
+                  package: "aisdk:@ai-sdk/openai-compatible",
+                  settings: { baseURL: "https://console.example/v1" },
+                  headers: { "x-org-id": "console", "x-console": "true" },
+                  models: { chat: { limit: { context: 200_000, output: 8_000 } } },
+                },
+              },
+            }),
+        }),
+      )
+      yield* ConfigProviderPlugin.Plugin.effect(host)
+
+      const provider = required(yield* providers.get(Provider.ID.make("remote")))
+      expect(provider.name).toBe("Console Account")
+      expect(provider.integrationID).toBe(Integration.ID.make("opencode"))
+      expect(provider.headers).toEqual({ "x-org-id": "local", "x-console": "true" })
+      const chat = required(yield* models.get(Provider.ID.make("remote"), Model.ID.make("chat")))
+      expect(chat.limit).toMatchObject({ context: 200_000, output: 4_000 })
+    }),
+  )
+
   it.effect("applies Console providers before provider plugins tune their canonical provider", () =>
     Effect.acquireUseRelease(
       Effect.sync(() =>
