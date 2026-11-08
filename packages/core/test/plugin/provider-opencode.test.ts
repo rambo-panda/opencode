@@ -2389,7 +2389,7 @@ describe("OpencodePlugin with a Console config", () => {
         value: Credential.Key.make({ type: "key", key: "secret", metadata: { server: "https://console.example" } }),
       })
       const plugin = yield* Plugin.Service
-      const host = yield* PluginHost.make(plugin)
+      const host = yield* PluginHost.make(plugin, "test")
       yield* OpencodePlugin.effect(host).pipe(
         inProcess({
           fetch: () =>
