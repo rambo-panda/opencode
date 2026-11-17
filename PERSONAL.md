@@ -1,6 +1,6 @@
 # Personal V2
 
-个人分支：`personal-v2`，当前源码基线为官方稳定标签 `v2.2.5`（`9bbb8ce18c`）。日常使用正式 V2。
+个人分支：`personal-v2`，当前源码基线为官方稳定标签 `v2.3.0`（`a6b15d33da`）。日常使用正式 V2。
 
 本文件记录仍影响个人分支维护、构建和使用的差异。开始修改前阅读；个人行为、重要兼容性或维护流程变化时同步更新。
 
@@ -9,8 +9,10 @@
 - 开发分支和 worktree 遵循根目录 [AGENTS.md](AGENTS.md) 的 `dev` 分支规则。`bin/rebase-v2.sh` 用于有意更新 `personal-v2` 的稳定版基线，不用于日常 V2 开发任务。
 - 开发功能或修改个人分支行为前，先检查官方对应 Issue/PR（包括 open、closed、merged）及 `upstream/v2`，向用户反馈链接和状态；未找到也需反馈。若有对应 open Issue，仅本地记录并等待官方，不自行设计或实现，除非用户明确改变决定。其他状态或未找到时，先反馈，再与用户讨论是否自行设计本地方案，不能默认直接实现。
 - 有意同步最新稳定版时运行 `bin/rebase-v2.sh`。它读取官方更新 API、fetch 稳定标签和 `upstream/v2`，创建 `v2-backup-<时间>` 后 rebase；不 push，也不自动丢弃冲突提交。冲突后继续或 abort。
+- 可在仓库当前会话输入 `/rebase-v2`（`.opencode/command/rebase-v2.md`）完成稳定版更新、冲突处理与验证；沿用当前 Agent/模型，不创建子会话。
 - 2026-10-27 从 `v2.0.32` rebase 到 `v2.1.4`，保留全部 18 个个人提交。模型选择器保留上游新样式、免费模型分组和个人 Provider 名称/搜索补丁；构建保留目录保护与上游 `--libc="*"` 安装参数。
 - 2026-11-01 从 `v2.1.4` rebase 到 `v2.2.5`，保留全部 22 个个人提交。Provider 补丁适配上游 `overlayProvider` / `overlay` / `integrate` 拆分，保留 Console 的连接绑定、显式路由模型范围、本地配置优先级和插件提供的 variants；模型选择器保留免费分组及 usage-limit UI。构建目标改用上游 `OPENCODE_TARGET`，保留目标校验先于输出删除及祖先目录保护；遵循上游删除过时的 `V2_HTTP_API_AUDIT.md`，不恢复历史审计清单。
+- 2026-11-17 从实际基线 `v2.2.7` rebase 到 `v2.3.0`（`a6b15d33da`），保留全部 24 个个人提交；原 tip 为 `9dd6046ab0`，备份为 `v2-backup-20261117102142`。解决两处冲突：Session footer 同时保留上游 TTFT 指标和个人 `■ Conversation interrupted`，移除重复 inline 中断提示；HTTP 请求测试同时保留上游 freeform 覆盖与个人 body/header 改写及 Session/模型身份校验，适配当前 `SessionModelRequest.primary(...)` 和 `PluginHost.make(plugins, "test")` API。
 - 本机 V2 个人版更新流程：
 
   ```sh
